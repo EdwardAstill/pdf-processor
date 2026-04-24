@@ -8,8 +8,18 @@ Cargo.lock
 
 # Session-local Claude scheduler state
 .claude/
+.warden/
 
-# Downloaded test-corpus PDFs — regenerate with scripts/fetch-papers.sh.
-# arXiv papers have mixed redistribution licenses; OpenDataLoader goldens
-# should be copied manually. The golden tests skip missing fixtures.
+# Keep tests/ small and text-only. Heavy local fixtures belong in test-corpus/.
+# Regenerate arXiv PDFs with scripts/fetch-papers.sh; copy OpenDataLoader
+# goldens manually. The golden tests skip missing fixtures.
+/test-corpus/
+
+# Legacy location kept ignored so old local corpora do not leak back into git.
 /papers/
+
+# Generated example corpora and converter outputs can be large and image-heavy.
+/example/pdf/
+/example/markdown/
+*_extracted/
+*.pdf

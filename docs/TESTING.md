@@ -8,21 +8,23 @@ Active scope note: the main `cnv` binary is now PDF-to-markdown only. Legacy mul
 
 | Layer | Command | Count | Runtime |
 | --- | --- | ---: | ---: |
-| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin cnv` | 140 | ~0.05 s |
-| Golden lorem smoke | `cargo test --test golden` | 1 | ~0.05 s |
+| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin cnv` | 100 | ~0.05 s |
+| Golden smoke/regression fixtures | `cargo test --test golden` | 4 (skip when fixtures are absent) | ~0.05 s+ |
 | Golden corpus sweep | `cargo test --test golden -- --ignored golden_corpus_sweep` | 1 (iterates 13 PDFs) | ~16 s |
 | Golden snapshot diff (attention page 1) | `cargo test --test golden -- --ignored golden_snapshot_attention_page_1` | 1 | ~3 s |
-| Hybrid — `httpmock` | `cargo test --test hybrid` | 3 | ~0.5 s |
+| Hybrid — `httpmock` | `cargo test --test hybrid` | 4 (skip when fixtures are absent) | ~0.5 s+ |
 | Hybrid — live docling-serve (see below) | `DOCLING_URL=… cargo test --test hybrid -- --ignored hybrid_live` | 1 | variable |
 
-All default-flag tests pass on the current tree:
+The repository keeps `tests/` small and text-only. PDF fixtures, extracted images, and other large corpus assets live under ignored `test-corpus/`. Populate it with `scripts/fetch-papers.sh` plus any manually copied OpenDataLoader goldens before running the full corpus checks.
+
+Default-flag tests pass on the current tree; fixture-backed integration tests print `SKIP` when `test-corpus/` is absent:
 
 ```
 cargo test
-# → unit (140), golden_lorem_quick (1), hybrid mock (3)  — all pass
+# → unit tests pass; fixture-backed tests run or skip depending on test-corpus/
 
 cargo test --test golden -- --ignored
-# → corpus sweep (1) + snapshot diff (1) — both pass
+# → corpus/snapshot tests run when test-corpus/ is populated
 
 cargo clippy --all-targets -- -D warnings
 # → clean
@@ -49,7 +51,7 @@ cargo check --features pdfium-metadata
 
 ## Test PDFs
 
-Under `papers/`:
+Under ignored `test-corpus/`:
 
 | File | Profile |
 | --- | --- |
@@ -62,7 +64,7 @@ Under `papers/`:
 | `physics-hep.pdf` | dense physics math |
 | `survey-llm.pdf` | figure-heavy survey |
 
-Under `papers/golden/` (fixtures copied from OpenDataLoader's samples):
+Under ignored `test-corpus/golden/` (fixtures copied from OpenDataLoader's samples):
 
 | File | Profile |
 | --- | --- |
@@ -100,7 +102,7 @@ DOCLING_URL=http://localhost:5001 \
   cargo test --test hybrid -- --ignored hybrid_live
 
 # 4. If hybrid_live fails, run cnv manually and inspect the raw response:
-RUST_LOG=debug cargo run -- papers/math-number-theory.pdf \
+RUST_LOG=debug cargo run -- test-corpus/math-number-theory.pdf \
   --hybrid docling --hybrid-url http://localhost:5001 \
   --hybrid-policy all --verbose -o /tmp/cnv-live-math
 ```
@@ -142,7 +144,7 @@ brew install pdfium
 
 # Verify the binding works:
 cargo run --features pdfium-metadata -- \
-  papers/golden/pdfua-1-reference-suite-1-1/some-tagged.pdf \
+  test-corpus/golden/pdfua-1-reference-suite-1-1/some-tagged.pdf \
   -o /tmp/cnv-pdfium-test --verbose
 
 # Eyeball the output markdown for heading hierarchy.
@@ -160,7 +162,7 @@ Automated tests can only assert on non-empty, non-panicking output. Quality is a
 
 ```bash
 rm -rf /tmp/cnv-eyeball && mkdir /tmp/cnv-eyeball
-cargo run --release -- papers/ -o /tmp/cnv-eyeball --verbose
+cargo run --release -- test-corpus/ -o /tmp/cnv-eyeball --verbose
 ls -la /tmp/cnv-eyeball/*/
 # then read a few of the generated .md files in your editor.
 ```
@@ -177,7 +179,7 @@ Things to look for:
 
 - **Unit test** — put it in a `#[cfg(test)] mod tests` block in the module under test. Reach for this first; unit tests are the fastest, most precise diagnostic.
 - **Integration test** — new file under `tests/`. Use `env!("CARGO_BIN_EXE_cnv")` to locate the binary (cargo rebuilds it automatically before running integration tests). Mark slow tests `#[ignore]` with a doc-comment explaining how to invoke them.
-- **New test PDF** — drop under `papers/` if it's an ML paper / typical document, or `papers/golden/` if it comes from an upstream fixture set. Append to `CORPUS_PATHS` in `tests/golden.rs`. If the PDF should have images, append to `EXPECTS_IMAGES` too. If it's a tagged PDF intended for Phase 3 verification, it can stay in `papers/golden/pdfua-1-reference-suite-1-1/`.
+- **New test PDF** — drop under ignored `test-corpus/` if it's an ML paper / typical document, or `test-corpus/golden/` if it comes from an upstream fixture set. Append to `CORPUS_PATHS` in `tests/golden.rs`. If the PDF should have images, append to `EXPECTS_IMAGES` too. If it's a tagged PDF intended for Phase 3 verification, it can stay in `test-corpus/golden/pdfua-1-reference-suite-1-1/`.
 
 ## Known non-determinism
 

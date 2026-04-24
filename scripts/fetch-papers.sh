@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Re-populate papers/ with the test corpus referenced by tests/golden.rs.
+# Re-populate test-corpus/ with the optional corpus referenced by tests/golden.rs.
 # Run once after a fresh clone. Total download is ~30 MB.
 
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-out="$root/papers"
+out="$root/test-corpus"
 golden="$out/golden"
 mkdir -p "$golden"
 

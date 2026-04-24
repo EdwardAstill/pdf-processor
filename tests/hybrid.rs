@@ -19,12 +19,25 @@ fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+fn optional_fixture(rel: &str) -> Option<PathBuf> {
+    let path = project_root().join(rel);
+    if !path.exists() {
+        eprintln!("SKIP: fixture missing {}", path.display());
+        return None;
+    }
+    Some(path)
+}
+
 fn bin_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_cnv"))
 }
 
 #[test]
 fn hybrid_docling_uses_markdown_from_mock_server() {
+    let Some(pdf) = optional_fixture("test-corpus/golden/lorem.pdf") else {
+        return;
+    };
+    let root = project_root();
     let server = MockServer::start();
 
     let canned = "# Canned Docling output\n\n\
@@ -40,10 +53,6 @@ fn hybrid_docling_uses_markdown_from_mock_server() {
                 serde_json::to_string(canned).unwrap()
             ));
     });
-
-    let root = project_root();
-    let pdf = root.join("papers/golden/lorem.pdf");
-    assert!(pdf.exists(), "fixture missing: {}", pdf.display());
 
     let out_dir = root.join("target/hybrid-mock-out");
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -90,6 +99,10 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
     // Phase 2b semantics: per-page backend failures are logged to stderr and
     // the page keeps its locally-rendered output. The process exits 0 — the
     // user still got something useful for every page.
+    let Some(pdf) = optional_fixture("test-corpus/golden/lorem.pdf") else {
+        return;
+    };
+    let root = project_root();
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST).path("/v1/convert/file");
@@ -98,8 +111,6 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
             .body("upstream busy");
     });
 
-    let root = project_root();
-    let pdf = root.join("papers/golden/lorem.pdf");
     let out_dir = root.join("target/hybrid-mock-err");
     let _ = std::fs::remove_dir_all(&out_dir);
 
@@ -146,6 +157,10 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
 
 #[test]
 fn hybrid_auto_routes_scan_like_document_to_mock_backend() {
+    let Some(pdf) = optional_fixture("test-corpus/golden/chinese_scan.pdf") else {
+        return;
+    };
+    let root = project_root();
     let server = MockServer::start();
     let canned = "# OCR markdown from mock backend\n\nRecovered text.\n";
 
@@ -158,13 +173,6 @@ fn hybrid_auto_routes_scan_like_document_to_mock_backend() {
                 serde_json::to_string(canned).unwrap()
             ));
     });
-
-    let root = project_root();
-    let pdf = root.join("papers/golden/chinese_scan.pdf");
-    if !pdf.exists() {
-        eprintln!("SKIP: fixture missing {}", pdf.display());
-        return;
-    }
 
     let out_dir = root.join("target/hybrid-scan-auto");
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -203,7 +211,7 @@ fn hybrid_off_produces_same_output_as_before_phase_2() {
     // untouched. Compare against the Phase 1 snapshot committed in
     // tests/snapshots/attention_page_1.md.
     let root = project_root();
-    let pdf = root.join("papers/attention.pdf");
+    let pdf = root.join("test-corpus/attention.pdf");
     if !pdf.exists() {
         eprintln!("SKIP: {} missing", pdf.display());
         return;
@@ -244,7 +252,7 @@ fn hybrid_live() {
     let url = std::env::var("DOCLING_URL").unwrap_or_else(|_| "http://localhost:5001".to_string());
 
     let root = project_root();
-    let pdf = root.join("papers/math-number-theory.pdf");
+    let pdf = root.join("test-corpus/math-number-theory.pdf");
     if !pdf.exists() {
         eprintln!("SKIP hybrid_live: {} missing", pdf.display());
         return;

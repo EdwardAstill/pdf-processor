@@ -26,19 +26,19 @@ use std::process::Command;
 
 /// Every PDF expected to process end-to-end without errors.
 const CORPUS_PATHS: &[&str] = &[
-    "papers/attention.pdf",
-    "papers/bert.pdf",
-    "papers/clip.pdf",
-    "papers/gpt3.pdf",
-    "papers/resnet.pdf",
-    "papers/math-number-theory.pdf",
-    "papers/physics-hep.pdf",
-    "papers/survey-llm.pdf",
-    "papers/golden/lorem.pdf",
-    "papers/golden/1901.03003.pdf",
-    "papers/golden/2408.02509v1.pdf",
-    "papers/golden/chinese_scan.pdf",
-    "papers/golden/issue-336-conto-economico-bialetti.pdf",
+    "test-corpus/attention.pdf",
+    "test-corpus/bert.pdf",
+    "test-corpus/clip.pdf",
+    "test-corpus/gpt3.pdf",
+    "test-corpus/resnet.pdf",
+    "test-corpus/math-number-theory.pdf",
+    "test-corpus/physics-hep.pdf",
+    "test-corpus/survey-llm.pdf",
+    "test-corpus/golden/lorem.pdf",
+    "test-corpus/golden/1901.03003.pdf",
+    "test-corpus/golden/2408.02509v1.pdf",
+    "test-corpus/golden/chinese_scan.pdf",
+    "test-corpus/golden/issue-336-conto-economico-bialetti.pdf",
 ];
 
 /// PDFs that must yield at least one extracted image. ResNet is intentionally
@@ -46,9 +46,9 @@ const CORPUS_PATHS: &[&str] = &[
 /// plots drawn as paths), which mupdf reports as `Vector` blocks, not `Image`
 /// blocks, and we currently only extract the latter.
 const EXPECTS_IMAGES: &[&str] = &[
-    "papers/attention.pdf",
-    "papers/clip.pdf",
-    "papers/survey-llm.pdf",
+    "test-corpus/attention.pdf",
+    "test-corpus/clip.pdf",
+    "test-corpus/survey-llm.pdf",
 ];
 
 fn project_root() -> PathBuf {
@@ -98,7 +98,7 @@ fn exact_line_count(markdown: &str, needle: &str) -> usize {
 #[test]
 fn golden_lorem_quick() {
     let root = project_root();
-    let pdf = root.join("papers/golden/lorem.pdf");
+    let pdf = root.join("test-corpus/golden/lorem.pdf");
     if !pdf.exists() {
         eprintln!("SKIP golden_lorem_quick: no {}", pdf.display());
         return;
@@ -133,7 +133,7 @@ fn golden_lorem_quick() {
 #[test]
 fn golden_scan_like_pdf_warns_about_hybrid() {
     let root = project_root();
-    let pdf = root.join("papers/golden/chinese_scan.pdf");
+    let pdf = root.join("test-corpus/golden/chinese_scan.pdf");
     if !pdf.exists() {
         eprintln!(
             "SKIP golden_scan_like_pdf_warns_about_hybrid: no {}",
@@ -165,7 +165,7 @@ fn golden_scan_like_pdf_warns_about_hybrid() {
 fn golden_presentation_suppresses_repeated_page_furniture() {
     let root = project_root();
     let pdf =
-        root.join("papers/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-04_Presentation.pdf");
+        root.join("test-corpus/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-04_Presentation.pdf");
     if !pdf.exists() {
         eprintln!(
             "SKIP golden_presentation_suppresses_repeated_page_furniture: no {}",
@@ -202,8 +202,8 @@ fn golden_presentation_suppresses_repeated_page_furniture() {
 #[test]
 fn golden_magazine_caps_decorative_images_on_front_page() {
     let root = project_root();
-    let pdf =
-        root.join("papers/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-01_Magazine-danish.pdf");
+    let pdf = root
+        .join("test-corpus/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-01_Magazine-danish.pdf");
     if !pdf.exists() {
         eprintln!(
             "SKIP golden_magazine_caps_decorative_images_on_front_page: no {}",
@@ -318,7 +318,7 @@ fn golden_corpus_sweep() {
             Regenerate with: GOLDEN_UPDATE=1 cargo test --test golden -- --ignored"]
 fn golden_snapshot_attention_page_1() {
     let root = project_root();
-    let pdf = root.join("papers/attention.pdf");
+    let pdf = root.join("test-corpus/attention.pdf");
     if !pdf.exists() {
         eprintln!("SKIP: no {}", pdf.display());
         return;
@@ -377,13 +377,13 @@ fn golden_snapshot_attention_page_1() {
 }
 
 #[test]
-#[ignore = "requires example fixtures; exercises invoice/form structure rendering"]
+#[ignore = "requires test-corpus fixtures; exercises invoice/form structure rendering"]
 fn golden_snapshot_invoice_and_form_structure() {
     let root = project_root();
     let invoice_pdf =
-        root.join("example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-02_Invoice.pdf");
+        root.join("test-corpus/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-02_Invoice.pdf");
     let form_pdf =
-        root.join("example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-10_Form.pdf");
+        root.join("test-corpus/golden/pdfua-1-reference-suite-1-1/PDFUA-Ref-2-10_Form.pdf");
     if !invoice_pdf.exists() || !form_pdf.exists() {
         eprintln!(
             "SKIP golden_snapshot_invoice_and_form_structure: missing fixture(s) invoice={} form={}",
@@ -425,10 +425,10 @@ fn golden_snapshot_invoice_and_form_structure() {
 }
 
 #[test]
-#[ignore = "requires example fixture; exercises financial table reconstruction"]
+#[ignore = "requires test-corpus fixture; exercises financial table reconstruction"]
 fn golden_snapshot_financial_statement_structure() {
     let root = project_root();
-    let pdf = root.join("example/pdf/golden__issue-336-conto-economico-bialetti.pdf");
+    let pdf = root.join("test-corpus/golden/issue-336-conto-economico-bialetti.pdf");
     if !pdf.exists() {
         eprintln!(
             "SKIP golden_snapshot_financial_statement_structure: no {}",
