@@ -49,6 +49,11 @@ pub struct Cli {
     /// backend cost. `all` routes every page (useful for testing).
     #[arg(long, value_enum, default_value = "auto")]
     pub hybrid_policy: HybridPolicy,
+
+    /// Optional directory for cached hybrid markdown, keyed by source PDF
+    /// metadata and page number.
+    #[arg(long)]
+    pub hybrid_cache_dir: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]

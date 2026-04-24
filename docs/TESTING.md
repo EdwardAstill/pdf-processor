@@ -12,6 +12,7 @@ Active scope note: the main `cnv` binary is now PDF-to-markdown only. Legacy mul
 | Golden smoke/regression fixtures | `cargo test --test golden` | 4 (skip when fixtures are absent) | ~0.05 s+ |
 | Golden corpus sweep | `cargo test --test golden -- --ignored golden_corpus_sweep` | 1 (iterates 13 PDFs) | ~16 s |
 | Golden snapshot diff (attention page 1) | `cargo test --test golden -- --ignored golden_snapshot_attention_page_1` | 1 | ~3 s |
+| PDF quality report | `bash scripts/quality-report.sh` | corpus summary + JSON report | corpus-dependent |
 | Hybrid — `httpmock` | `cargo test --test hybrid` | 4 (skip when fixtures are absent) | ~0.5 s+ |
 | Hybrid — live docling-serve (see below) | `DOCLING_URL=… cargo test --test hybrid -- --ignored hybrid_live` | 1 | variable |
 
@@ -25,6 +26,9 @@ cargo test
 
 cargo test --test golden -- --ignored
 # → corpus/snapshot tests run when test-corpus/ is populated
+
+bash scripts/quality-report.sh
+# → writes /tmp/cnv-quality/report.json; exits 0 with SKIP if test-corpus/ is absent
 
 cargo clippy --all-targets -- -D warnings
 # → clean
@@ -40,7 +44,7 @@ cargo check --features pdfium-metadata
 - **Metadata lookup** — 6 tests in `src/pdf/metadata.rs::tests` covering overlap scoring, bbox matching, and the stub loader.
 - **PDF extraction subscript/superscript logic** — 20+ tests in `src/pdf/extractor.rs::tests` exercising classify_char_script, group_into_text_rows, and real-world traces from AISC-360.
 - **Markdown renderer** — tests in `src/render/markdown.rs::tests` covering heading/paragraph/list/table emission, section splitting, scanned-page warnings, and the Phase 2b `override_markdown` path (implicitly via hybrid integration tests).
-- **Hybrid triage** — 8 unit tests in `src/hybrid/triage.rs::tests` covering math-density threshold, table detection, low-density detection, and the fact that running-footer text is excluded from the math count.
+- **Hybrid triage/cache** — tests in `src/hybrid/triage.rs::tests` and `src/hybrid/mod.rs::tests` covering math-density threshold, table detection, low-density detection, running-footer exclusion, and cache hits that bypass backend/PDF extraction.
 - **Hybrid client parsing** — 5 unit tests on `ConvertResponse` deserialisation, all documented fallback keys (`md_content`, `content_md`, nested under `document`).
 - **Hybrid end-to-end** (via `httpmock` in `tests/hybrid.rs`) — three scenarios:
   - Mock server returns canned markdown → output contains it; mock hit count asserted.
@@ -52,6 +56,16 @@ cargo check --features pdfium-metadata
 ## Test PDFs
 
 Under ignored `test-corpus/`:
+
+The quality harness also reads this ignored directory. Keep PDFs and extracted images out of git; `tests/quality.rs` verifies the harness reports a clear `SKIP` instead of pretending quality coverage exists when the corpus is absent. Override paths when needed:
+
+```bash
+CNV_QUALITY_CORPUS=/path/to/test-corpus \
+CNV_QUALITY_OUT=/tmp/cnv-quality \
+  bash scripts/quality-report.sh
+```
+
+The report contains one entry per PDF with page count, warning count, extracted image count, empty page count, table marker count, and heading count.
 
 | File | Profile |
 | --- | --- |
@@ -104,7 +118,8 @@ DOCLING_URL=http://localhost:5001 \
 # 4. If hybrid_live fails, run cnv manually and inspect the raw response:
 RUST_LOG=debug cargo run -- test-corpus/math-number-theory.pdf \
   --hybrid docling --hybrid-url http://localhost:5001 \
-  --hybrid-policy all --verbose -o /tmp/cnv-live-math
+  --hybrid-policy all --hybrid-cache-dir /tmp/cnv-docling-cache \
+  --verbose -o /tmp/cnv-live-math
 ```
 
 With `uv`/`pip` (requires Python 3.10–3.12 — not 3.14):

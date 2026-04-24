@@ -75,6 +75,7 @@ Main options:
 | `--hybrid-url <URL>` | `http://localhost:5001` | Hybrid backend base URL |
 | `--hybrid-timeout-secs <N>` | `600` | Hybrid timeout |
 | `--hybrid-policy <POLICY>` | `auto` | `auto` or `all` |
+| `--hybrid-cache-dir <DIR>` | off | Reuse per-page Docling markdown |
 | `-v`, `--verbose` | off | Print progress to stderr |
 
 Examples:
@@ -91,6 +92,9 @@ cnv "papers/*.pdf" -o out/
 
 # Hybrid assist for harder pages
 cnv math-paper.pdf --hybrid docling -o out/
+
+# Hybrid assist with cached OCR/table output
+cnv scan.pdf --hybrid docling --hybrid-cache-dir .cnv-cache -o out/
 ```
 
 ## Output

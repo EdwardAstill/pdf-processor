@@ -51,6 +51,15 @@ const EXPECTS_IMAGES: &[&str] = &[
     "test-corpus/survey-llm.pdf",
 ];
 
+fn missing_fixtures(paths: &[&str]) -> Vec<String> {
+    let root = project_root();
+    paths
+        .iter()
+        .filter(|rel| !root.join(rel).exists())
+        .map(|rel| (*rel).to_string())
+        .collect()
+}
+
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -93,6 +102,25 @@ fn page_slice(markdown: &str, page_num: usize) -> &str {
 
 fn exact_line_count(markdown: &str, needle: &str) -> usize {
     markdown.lines().filter(|line| *line == needle).count()
+}
+
+#[test]
+fn golden_corpus_missing_fixtures_are_reported_as_skips() {
+    let skipped = missing_fixtures(CORPUS_PATHS);
+    if skipped.is_empty() {
+        eprintln!("SKIP golden_corpus_missing_fixtures_are_reported_as_skips: corpus populated");
+        return;
+    }
+
+    assert!(
+        skipped.iter().any(|path| path.starts_with("test-corpus/")),
+        "expected missing corpus paths to be listed as test-corpus skips, got {skipped:?}"
+    );
+    eprintln!(
+        "SKIP missing {} corpus fixture(s): {:?}",
+        skipped.len(),
+        skipped
+    );
 }
 
 #[test]
@@ -242,12 +270,11 @@ fn golden_corpus_sweep() {
     std::fs::create_dir_all(&out).unwrap();
 
     let mut failures: Vec<String> = Vec::new();
-    let mut skipped: Vec<String> = Vec::new();
+    let skipped: Vec<String> = missing_fixtures(CORPUS_PATHS);
 
     for rel in CORPUS_PATHS {
         let pdf = root.join(rel);
-        if !pdf.exists() {
-            skipped.push((*rel).to_string());
+        if skipped.iter().any(|missing| missing == rel) {
             continue;
         }
 

@@ -50,11 +50,45 @@ pub(super) fn cleanup_extracted_text(input: &str) -> String {
         }
     }
 
-    cleaned
+    let cleaned = cleaned.replace("-\n", "-");
+    insert_space_after_numbered_section_label(&cleaned)
 }
 
 fn is_bad_control(ch: char) -> bool {
     matches!(ch, '\u{0000}'..='\u{0008}' | '\u{000B}' | '\u{000C}' | '\u{000E}'..='\u{001F}' | '\u{007F}'..='\u{009F}')
+}
+
+fn insert_space_after_numbered_section_label(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 4);
+    let chars: Vec<char> = text.chars().collect();
+
+    for (idx, ch) in chars.iter().copied().enumerate() {
+        let prev = idx.checked_sub(1).and_then(|i| chars.get(i)).copied();
+        let next = chars.get(idx + 1).copied();
+        let should_insert_space = match (prev, ch, next) {
+            (Some(prev), ch, Some(next))
+                if prev.is_ascii_digit()
+                    && ch.is_uppercase()
+                    && next.is_lowercase()
+                    && !ch.is_whitespace() =>
+            {
+                let prev_prev = idx.checked_sub(2).and_then(|i| chars.get(i)).copied();
+                !matches!(prev_prev, Some(p) if p.is_alphabetic())
+            }
+            (Some('.'), ch, Some(next)) if ch.is_uppercase() && next.is_lowercase() => {
+                let prev_prev = idx.checked_sub(2).and_then(|i| chars.get(i)).copied();
+                matches!(prev_prev, Some(p) if p.is_ascii_digit())
+            }
+            _ => false,
+        };
+
+        if should_insert_space && !out.ends_with(' ') {
+            out.push(' ');
+        }
+        out.push(ch);
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -94,5 +128,17 @@ mod tests {
         let input = "A\u{200B}B\u{2060}C\u{202A}D\u{202C}E";
         let cleaned = cleanup_extracted_text(input);
         assert_eq!(cleaned, "ABCDE");
+    }
+
+    #[test]
+    fn inserts_missing_space_after_numbered_section_label() {
+        let cleaned = cleanup_extracted_text("3.1Encoder and Decoder Stacks");
+        assert_eq!(cleaned, "3.1 Encoder and Decoder Stacks");
+    }
+
+    #[test]
+    fn keeps_visible_hyphen_when_line_break_splits_compound_word() {
+        let cleaned = cleanup_extracted_text("English-\nto-German translation");
+        assert_eq!(cleaned, "English-to-German translation");
     }
 }

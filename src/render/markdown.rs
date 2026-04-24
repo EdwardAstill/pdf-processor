@@ -155,9 +155,9 @@ impl MarkdownRenderer {
                     i += 1;
                 }
                 BlockKind::Paragraph => {
-                    let text = block.text.trim();
+                    let text = normalize_paragraph_text(&block.text);
                     if !text.is_empty() {
-                        md.push_str(text);
+                        md.push_str(&text);
                         md.push_str("\n\n");
                     }
                     i += 1;
@@ -912,9 +912,7 @@ fn parse_numeric_row(text: &str) -> Option<ParsedNumericRow> {
     }
     trailing.reverse();
 
-    let Some((first_start, _, _)) = trailing.first() else {
-        return None;
-    };
+    let (first_start, _, _) = trailing.first()?;
     let label = trimmed[..*first_start]
         .trim()
         .trim_end_matches(':')
@@ -946,7 +944,7 @@ fn looks_like_table_header(text: &str, value_count: usize) -> bool {
     alpha > 8
         && upper * 2 >= alpha
         && (looks_like_invoice_header(text)
-            || (value_count >= 2 && text.split_whitespace().count() >= value_count + 1))
+            || (value_count >= 2 && text.split_whitespace().count() > value_count))
 }
 
 fn derive_table_headers(
@@ -1250,14 +1248,14 @@ fn render_scholarly_first_page(
     }
 
     for block in metadata_blocks {
-        append_paragraph(
+        append_plain_text(
             &mut markdown,
             &normalize_front_matter_text(block.text.trim()),
         );
     }
 
     for entry in collect_author_entries(&author_blocks) {
-        append_paragraph(&mut markdown, &entry);
+        append_plain_text(&mut markdown, &entry);
     }
 
     if let Some(abstract_idx) = abstract_idx {
@@ -1545,11 +1543,33 @@ fn normalize_front_matter_text(text: &str) -> String {
 }
 
 fn append_paragraph(markdown: &mut String, text: &str) {
-    if text.trim().is_empty() {
+    let text = normalize_paragraph_text(text);
+    if text.is_empty() {
         return;
     }
-    markdown.push_str(text.trim());
+    markdown.push_str(&text);
     markdown.push_str("\n\n");
+}
+
+fn append_plain_text(markdown: &mut String, text: &str) {
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    markdown.push_str(text);
+    markdown.push_str("\n\n");
+}
+
+fn normalize_paragraph_text(text: &str) -> String {
+    text.replace("-\n", "-")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text: bool) {
@@ -1598,6 +1618,10 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
             }
         }
         BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {}
+        _ if force_plain_text => {
+            let text = normalize_front_matter_text(block.text.trim());
+            append_plain_text(markdown, &text);
+        }
         _ => append_paragraph(markdown, &normalize_front_matter_text(block.text.trim())),
     }
 }
@@ -1757,6 +1781,50 @@ mod tests {
         let result = renderer.render_document(&doc).unwrap();
         assert!(result.markdown.contains("# Introduction"));
         assert!(result.markdown.contains("Hello world."));
+    }
+
+    #[test]
+    fn reflows_artificial_blank_lines_inside_paragraphs() {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![make_block(
+                0,
+                "This is one\n\nparagraph with\n\nartificial breaks.",
+                BlockKind::Paragraph,
+                0,
+            )],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        let result = renderer.render_document(&doc).unwrap();
+        assert!(result
+            .markdown
+            .contains("This is one paragraph with artificial breaks."));
+    }
+
+    #[test]
+    fn paragraph_reflow_preserves_mathish_subscript_and_superscript_markup() {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![make_block(
+                0,
+                "For x^{2}\n+\ny_{i}, the term remains stable.",
+                BlockKind::Paragraph,
+                0,
+            )],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        let result = renderer.render_document(&doc).unwrap();
+        assert!(result
+            .markdown
+            .contains("For x^{2} + y_{i}, the term remains stable."));
     }
 
     #[test]

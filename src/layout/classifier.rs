@@ -59,22 +59,9 @@ fn scholarly_note_re() -> &'static Regex {
     })
 }
 
-fn affiliation_keyword_re() -> &'static Regex {
+fn numbered_section_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)\b(university|institute|department|school|college|laborator(?:y|ies)|research|openai|google|microsoft|meta|deepmind|anthropic|inc\.?|corp\.?|llc|san francisco|california|toronto|eth zurich)\b",
-        )
-        .unwrap()
-    })
-}
-
-fn numeric_cell_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"^\s*\(?-?(?:\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})|\d+)\)?\s*$")
-            .unwrap()
-    })
+    RE.get_or_init(|| Regex::new(r"^\s*(\d+(?:\.\d+)*)(?:[.)])?\s+(.+\S)\s*$").unwrap())
 }
 
 fn struct_role_to_heading_level(role: &str) -> Option<u8> {
@@ -145,8 +132,10 @@ impl Classifier {
         metadata: Option<&PageMetadata>,
     ) -> Vec<Block> {
         // First pass: detect table cells (pass body font size for heading exclusion)
-        let table_cells =
-            detect_table_cells_with_font_size(&raw_blocks, self.config.body_font_size);
+        let table_cells = super::table::detect_table_cells_with_font_size(
+            &raw_blocks,
+            self.config.body_font_size,
+        );
 
         raw_blocks
             .into_iter()
@@ -214,6 +203,14 @@ impl Classifier {
         // Code block
         if code_block_re().is_match(text) {
             return BlockKind::CodeBlock;
+        }
+
+        if text.eq_ignore_ascii_case("abstract") {
+            return BlockKind::Heading { level: 2 };
+        }
+
+        if let Some(level) = numbered_section_heading_level(text, block, &self.config) {
+            return BlockKind::Heading { level };
         }
 
         // List items
@@ -358,378 +355,42 @@ fn is_likely_heading_text(text: &str) -> bool {
     cap_count as f32 / words.len() as f32 >= 0.6
 }
 
-/// Pre-classify blocks to identify which ones should be excluded from table detection.
-/// Returns true for blocks that are clearly not table cells (headings, captions, list items, etc.).
-fn is_non_table_block(block: &RawTextBlock, body_font_size: f32) -> bool {
-    let text = block.text.trim();
-
-    // Empty blocks
-    if text.is_empty() {
-        return true;
+fn numbered_section_heading_level(
+    text: &str,
+    block: &RawTextBlock,
+    config: &ClassifierConfig,
+) -> Option<u8> {
+    let captures = numbered_section_re().captures(text)?;
+    let label = captures.get(1)?.as_str();
+    let title = captures.get(2)?.as_str().trim();
+    if title.is_empty() || title.len() > 100 || title.ends_with('.') {
+        return None;
     }
 
-    // Captions (e.g. "Table E1.1 ...", "Figure 3. ...")
-    if caption_re().is_match(text) {
-        return true;
+    let ratio = block.font_size / config.body_font_size.max(0.1);
+    if ratio < 1.05 && !is_likely_heading_text(title) {
+        return None;
     }
 
-    // Page numbers
-    if page_number_re().is_match(text) && block.bbox.width() < 40.0 && text.len() <= 6 {
-        return true;
+    let depth = label.split('.').filter(|part| !part.is_empty()).count();
+    if depth == 0 {
+        return None;
     }
 
-    // List items
-    if ordered_list_re().is_match(text) || unordered_list_re().is_match(text) {
-        return true;
-    }
-
-    // Author / affiliation blocks on scholarly first pages are often arranged
-    // in a visual grid, but rendering them as markdown tables reads poorly.
-    if looks_like_author_affiliation_block(text) {
-        return true;
-    }
-
-    // Headings: font size significantly larger than body
-    if body_font_size > 0.0 && block.font_size / body_font_size >= 1.15 {
-        return true;
-    }
-
-    // Long paragraph text (table cells are typically short)
-    // A block with > 200 chars and no column-like structure is likely a paragraph
-    if text.len() > 200 {
-        return true;
-    }
-
-    false
+    Some((depth as u8 + 1).clamp(2, 6))
 }
 
-fn looks_like_author_affiliation_block(text: &str) -> bool {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-
-    if trimmed.contains('@') || affiliation_keyword_re().is_match(trimmed) {
-        return true;
-    }
-
-    let non_empty_lines: Vec<&str> = trimmed
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    if non_empty_lines.len() >= 2 {
-        return looks_like_author_name_line(non_empty_lines[0]);
-    }
-
-    false
-}
-
-fn looks_like_author_name_line(text: &str) -> bool {
-    let words: Vec<&str> = text
-        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';'))
-        .filter(|word| !word.is_empty())
-        .collect();
-    if !(2..=12).contains(&words.len()) {
-        return false;
-    }
-
-    let stopwords = [
-        "a", "an", "and", "are", "as", "at", "by", "for", "from", "in", "is", "of", "on", "or",
-        "the", "to", "with",
-    ];
-
-    let capitalized = words
-        .iter()
-        .filter(|word| {
-            word.chars()
-                .find(|c| c.is_alphabetic())
-                .map(|c| c.is_uppercase())
-                .unwrap_or(false)
-        })
-        .count();
-    let stopword_count = words
-        .iter()
-        .filter(|word| stopwords.contains(&word.to_ascii_lowercase().as_str()))
-        .count();
-    let lowercase_content_words = words
-        .iter()
-        .filter(|word| {
-            let lower = word.to_ascii_lowercase();
-            !stopwords.contains(&lower.as_str())
-                && word
-                    .chars()
-                    .find(|c| c.is_alphabetic())
-                    .map(|c| c.is_lowercase())
-                    .unwrap_or(false)
-        })
-        .count();
-
-    capitalized * 5 >= words.len() * 4 && stopword_count == 0 && lowercase_content_words == 0
-}
-
-fn table_column_anchor(block: &RawTextBlock) -> f32 {
-    if numeric_cell_re().is_match(block.text.trim()) {
-        block.bbox.x1
-    } else {
-        block.bbox.x0
-    }
-}
-
-/// Detect table cells by finding blocks arranged in a 2D grid.
-/// Uses a region-based approach: identifies candidate table regions among
-/// non-heading/non-caption blocks, then validates each region independently.
-/// Returns a map from block_id → BlockKind::TableCell { row, col }.
 #[cfg(test)]
 fn detect_table_cells(blocks: &[RawTextBlock]) -> std::collections::HashMap<usize, BlockKind> {
-    // Use body_font_size=0 when we can't compute it (disables heading filter in is_non_table_block)
-    detect_table_cells_with_font_size(blocks, 0.0)
+    super::table::detect_table_cells(blocks)
 }
 
+#[cfg(test)]
 fn detect_table_cells_with_font_size(
     blocks: &[RawTextBlock],
     body_font_size: f32,
 ) -> std::collections::HashMap<usize, BlockKind> {
-    use std::collections::HashMap;
-
-    let mut result = HashMap::new();
-
-    if blocks.len() < 4 {
-        return result; // need at least a 2x2 grid
-    }
-
-    // Filter out blocks that are clearly not table cells
-    let candidate_blocks: Vec<&RawTextBlock> = blocks
-        .iter()
-        .filter(|b| !is_non_table_block(b, body_font_size))
-        .collect();
-
-    if candidate_blocks.len() < 4 {
-        return result;
-    }
-
-    // Find candidate table regions: groups of vertically contiguous blocks
-    // that share column alignment.
-    let regions = find_table_regions(&candidate_blocks);
-
-    for region in &regions {
-        if region.len() < 4 {
-            continue;
-        }
-
-        let region_result = detect_table_in_region(region);
-        // Merge into overall result
-        for (block_id, kind) in region_result {
-            result.insert(block_id, kind);
-        }
-    }
-
-    result
-}
-
-/// Find contiguous vertical regions of blocks that could be tables.
-/// Groups blocks by vertical proximity — blocks within a region have small
-/// vertical gaps between consecutive rows.
-fn find_table_regions<'a>(blocks: &[&'a RawTextBlock]) -> Vec<Vec<&'a RawTextBlock>> {
-    if blocks.is_empty() {
-        return vec![];
-    }
-
-    // Sort by y0 (top edge)
-    let mut sorted: Vec<&RawTextBlock> = blocks.to_vec();
-    sorted.sort_by(|a, b| {
-        a.bbox
-            .y0
-            .partial_cmp(&b.bbox.y0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Cluster y-positions into rows
-    let y_positions: Vec<f32> = sorted.iter().map(|b| b.bbox.y0).collect();
-    let y_clusters = cluster_positions(&y_positions, 6.0);
-
-    if y_clusters.len() < 2 {
-        return vec![];
-    }
-
-    // Assign each block to its row cluster
-    let mut row_assignments: Vec<(usize, &RawTextBlock)> = Vec::new();
-    for &block in &sorted {
-        if let Some(row) = nearest_cluster(block.bbox.y0, &y_clusters, 6.0) {
-            row_assignments.push((row, block));
-        }
-    }
-
-    // Group by row
-    let mut rows_map: std::collections::BTreeMap<usize, Vec<&RawTextBlock>> =
-        std::collections::BTreeMap::new();
-    for (row, block) in &row_assignments {
-        rows_map.entry(*row).or_default().push(*block);
-    }
-
-    // A row needs >= 2 blocks to be table-like
-    let table_rows: Vec<usize> = rows_map
-        .iter()
-        .filter(|(_, blocks_in_row)| blocks_in_row.len() >= 2)
-        .map(|(row, _)| *row)
-        .collect();
-
-    if table_rows.len() < 2 {
-        return vec![];
-    }
-
-    // Find contiguous runs of table-like rows
-    let mut regions: Vec<Vec<&'a RawTextBlock>> = Vec::new();
-    let mut current_region: Vec<&RawTextBlock> = Vec::new();
-    let mut prev_row: Option<usize> = None;
-
-    for &row_idx in &table_rows {
-        let is_contiguous = match prev_row {
-            Some(prev) => row_idx <= prev + 2, // allow one gap row
-            None => true,
-        };
-
-        if is_contiguous {
-            for &block in rows_map.get(&row_idx).unwrap() {
-                current_region.push(block);
-            }
-        } else {
-            if current_region.len() >= 4 {
-                regions.push(current_region);
-            }
-            current_region = Vec::new();
-            for &block in rows_map.get(&row_idx).unwrap() {
-                current_region.push(block);
-            }
-        }
-        prev_row = Some(row_idx);
-    }
-    if current_region.len() >= 4 {
-        regions.push(current_region);
-    }
-
-    regions
-}
-
-/// Detect a table within a candidate region of blocks.
-/// Returns a map from block_id → BlockKind::TableCell { row, col }.
-fn detect_table_in_region(region: &[&RawTextBlock]) -> std::collections::HashMap<usize, BlockKind> {
-    use std::collections::HashMap;
-
-    let mut result = HashMap::new();
-
-    // Numeric columns are often right-aligned, so use the right edge for
-    // numeric-looking cells and the left edge everywhere else.
-    let x_positions: Vec<f32> = region.iter().map(|b| table_column_anchor(b)).collect();
-    let x_clusters = cluster_positions(&x_positions, 12.0);
-
-    // Cluster y-positions (top edges) into rows
-    let y_positions: Vec<f32> = region.iter().map(|b| b.bbox.y0).collect();
-    let y_clusters = cluster_positions(&y_positions, 6.0);
-
-    // Need >= 2 rows and >= 2 columns
-    if x_clusters.len() < 2 || y_clusters.len() < 2 {
-        return result;
-    }
-
-    // Guard: a real table rarely has more than 10 columns
-    if x_clusters.len() > 10 {
-        return result;
-    }
-
-    // Assign each block to a (row, col) if it aligns to cluster centres,
-    // keyed by block_id for stability against reordering.
-    for block in region.iter() {
-        let col = nearest_cluster(table_column_anchor(block), &x_clusters, 12.0);
-        let row = nearest_cluster(block.bbox.y0, &y_clusters, 6.0);
-        if let (Some(col), Some(row)) = (col, row) {
-            result.insert(block.block_id, BlockKind::TableCell { row, col });
-        }
-    }
-
-    // Only keep as table if at least 4 cells were assigned (2x2 minimum)
-    if result.len() < 4 {
-        result.clear();
-        return result;
-    }
-
-    // Validate: need at least 2 columns each with >= 2 cells
-    let mut col_counts: HashMap<usize, usize> = HashMap::new();
-    for kind in result.values() {
-        if let BlockKind::TableCell { col, .. } = kind {
-            *col_counts.entry(*col).or_insert(0) += 1;
-        }
-    }
-    let cols_with_2_plus = col_counts.values().filter(|&&c| c >= 2).count();
-    if cols_with_2_plus < 2 {
-        result.clear();
-        return result;
-    }
-
-    // Guard: table height can be up to 85% of estimated page height
-    // (engineering standards often have full-page tables)
-    let assigned_blocks: Vec<&&RawTextBlock> = region
-        .iter()
-        .filter(|b| result.contains_key(&b.block_id))
-        .collect();
-
-    if let (Some(min_y), Some(max_y)) = (
-        assigned_blocks.iter().map(|b| b.bbox.y0).reduce(f32::min),
-        assigned_blocks.iter().map(|b| b.bbox.y1).reduce(f32::max),
-    ) {
-        let table_height = max_y - min_y;
-        // Only reject if table height is unreasonably large compared to itself
-        // (this shouldn't happen for a real region, but guards against pathological cases)
-        if table_height < 0.0 {
-            result.clear();
-        }
-    }
-
-    result
-}
-
-/// Cluster a list of float positions using a simple greedy merge.
-/// Returns the list of cluster centre values, sorted ascending.
-fn cluster_positions(positions: &[f32], tolerance: f32) -> Vec<f32> {
-    let mut sorted = positions.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    sorted.dedup_by(|a, b| (*b - *a).abs() < 0.1);
-
-    let mut clusters: Vec<Vec<f32>> = Vec::new();
-    for pos in sorted {
-        if let Some(cluster) = clusters.last_mut() {
-            let centre = cluster.iter().sum::<f32>() / cluster.len() as f32;
-            if (pos - centre).abs() <= tolerance {
-                cluster.push(pos);
-                continue;
-            }
-        }
-        clusters.push(vec![pos]);
-    }
-
-    clusters
-        .iter()
-        .map(|c| c.iter().sum::<f32>() / c.len() as f32)
-        .collect()
-}
-
-/// Find which cluster index a value belongs to, within tolerance. Returns None if no match.
-fn nearest_cluster(value: f32, clusters: &[f32], tolerance: f32) -> Option<usize> {
-    clusters
-        .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| {
-            (value - *a)
-                .abs()
-                .partial_cmp(&(value - *b).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .and_then(|(i, &centre)| {
-            if (value - centre).abs() <= tolerance {
-                Some(i)
-            } else {
-                None
-            }
-        })
+    super::table::detect_table_cells_with_font_size(blocks, body_font_size)
 }
 
 #[cfg(test)]
@@ -783,6 +444,49 @@ mod tests {
         let block = make_block(50.0, 100.0, 400.0, 130.0, "Introduction", 18.0);
         let kind = clf.classify_block(&block, &page);
         assert!(matches!(kind, BlockKind::Heading { level: 2 }));
+    }
+
+    #[test]
+    fn academic_numbered_top_level_section_becomes_h2_not_list_item() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = classifier_with_body(10.0);
+        let block = make_block(50.0, 180.0, 360.0, 198.0, "1. Introduction", 13.0);
+
+        assert_eq!(
+            clf.classify_block(&block, &page),
+            BlockKind::Heading { level: 2 }
+        );
+    }
+
+    #[test]
+    fn academic_numbered_subsection_becomes_h3_not_h4() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = classifier_with_body(10.0);
+        let block = make_block(
+            50.0,
+            220.0,
+            430.0,
+            238.0,
+            "3.1 Encoder and Decoder Stacks",
+            12.0,
+        );
+
+        assert_eq!(
+            clf.classify_block(&block, &page),
+            BlockKind::Heading { level: 3 }
+        );
+    }
+
+    #[test]
+    fn abstract_heading_becomes_h2() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = classifier_with_body(10.0);
+        let block = make_block(50.0, 140.0, 180.0, 158.0, "Abstract", 12.0);
+
+        assert_eq!(
+            clf.classify_block(&block, &page),
+            BlockKind::Heading { level: 2 }
+        );
     }
 
     #[test]

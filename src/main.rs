@@ -169,6 +169,7 @@ fn process_pdf(pdf_path: &std::path::Path, cli: &Cli) -> anyhow::Result<()> {
             policy,
             &cli.hybrid_url,
             timeout,
+            cli.hybrid_cache_dir.as_deref(),
             cli.verbose,
         )
         .with_context(|| {
@@ -183,6 +184,9 @@ fn process_pdf(pdf_path: &std::path::Path, cli: &Cli) -> anyhow::Result<()> {
                 "  hybrid: routed {}/{} pages ({} failed)",
                 stats.pages_routed, stats.pages_total, stats.pages_failed
             );
+            if stats.pages_cached > 0 {
+                eprintln!("  hybrid: cache hits {}", stats.pages_cached);
+            }
         }
     }
 
