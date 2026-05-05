@@ -73,7 +73,7 @@ fn temp_file_path(src: &Path, target_page: usize) -> PathBuf {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "page".to_string());
     name.push(format!(
-        "cnv-{pid}-{stem}-p{page}.pdf",
+        "pdfp-{pid}-{stem}-p{page}.pdf",
         pid = std::process::id(),
         page = target_page,
     ));

@@ -1,12 +1,12 @@
 [package]
-name = "cnv"
-version = "0.1.0"
+name = "pdf-processor"
+version = "0.1.1"
 edition = "2021"
-description = "Convert files to AI-friendly markdown structures"
+description = "Local PDF processor with markdown conversion, inspection, search, and page operations"
 license = "MIT"
 
 [[bin]]
-name = "cnv"
+name = "pdfp"
 path = "src/main.rs"
 
 [dependencies]

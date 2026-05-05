@@ -1,0 +1,62 @@
+use anyhow::Context;
+use std::path::Path;
+
+use crate::batch;
+use crate::cli::{AppCommand, ConvertArgs, InputType};
+use crate::pipeline;
+use crate::processor;
+
+pub fn run(command: AppCommand) -> anyhow::Result<()> {
+    match command {
+        AppCommand::Convert(args) => run_convert(args),
+        AppCommand::Inspect(args) => processor::inspect::run(&args),
+        AppCommand::Search(args) => processor::search::run(&args),
+        AppCommand::Pages(args) => processor::pages::run(&args),
+        AppCommand::Impose(args) => processor::impose::run(&args),
+        AppCommand::Page(args) => processor::resize::run(&args),
+    }
+}
+
+fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
+    let inputs = batch::resolve_inputs(&args.input)
+        .with_context(|| format!("Failed to resolve input '{}'", args.input))?;
+
+    if args.options.verbose {
+        eprintln!("Processing {} PDF file(s)", inputs.len());
+    }
+
+    let results: Vec<(std::path::PathBuf, anyhow::Result<()>)> = inputs
+        .iter()
+        .map(|path| (path.clone(), process_one(path, &args)))
+        .collect();
+
+    let mut had_errors = false;
+    for (path, result) in &results {
+        match result {
+            Ok(()) => {
+                if args.options.verbose {
+                    eprintln!("  ok: {}", path.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("  error: {}: {}", path.display(), e);
+                had_errors = true;
+            }
+        }
+    }
+
+    if had_errors {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+fn process_one(path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
+    let input_type = InputType::from_path(path)
+        .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
+
+    match input_type {
+        InputType::Pdf => pipeline::process_pdf(path, args),
+    }
+}

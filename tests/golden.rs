@@ -1,6 +1,6 @@
 //! Golden-output integration tests.
 //!
-//! Runs the built `cnv` binary against real PDFs and asserts on the output.
+//! Runs the built `pdfp` binary against real PDFs and asserts on the output.
 //!
 //! Three test levels:
 //!
@@ -17,7 +17,7 @@
 //!    snapshot; subsequent runs fail on any diff. Regenerate with:
 //!    `GOLDEN_UPDATE=1 cargo test --test golden -- --ignored`
 //!
-//! The binary path comes from the `CARGO_BIN_EXE_cnv` env var that Cargo sets
+//! The binary path comes from the `CARGO_BIN_EXE_pdfp` env var that Cargo sets
 //! automatically for integration tests, so `cargo test` implicitly rebuilds
 //! the bin before running these tests.
 
@@ -65,16 +65,16 @@ fn project_root() -> PathBuf {
 }
 
 fn bin_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_cnv"))
+    PathBuf::from(env!("CARGO_BIN_EXE_pdfp"))
 }
 
-fn run_cnv(pdf: &Path, out_dir: &Path) -> std::process::Output {
+fn run_pdfp(pdf: &Path, out_dir: &Path) -> std::process::Output {
     Command::new(bin_path())
         .arg(pdf)
         .arg("-o")
         .arg(out_dir)
         .output()
-        .expect("failed to execute cnv binary")
+        .expect("failed to execute pdfp binary")
 }
 
 fn stem(pdf: &Path) -> String {
@@ -136,10 +136,10 @@ fn golden_lorem_quick() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed on lorem.pdf: exit {:?}, stderr:\n{}",
+        "pdfp failed on lorem.pdf: exit {:?}, stderr:\n{}",
         result.status.code(),
         String::from_utf8_lossy(&result.stderr)
     );
@@ -174,10 +174,10 @@ fn golden_scan_like_pdf_warns_about_hybrid() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed on chinese_scan.pdf: exit {:?}, stderr:\n{}",
+        "pdfp failed on chinese_scan.pdf: exit {:?}, stderr:\n{}",
         result.status.code(),
         String::from_utf8_lossy(&result.stderr)
     );
@@ -206,10 +206,10 @@ fn golden_presentation_suppresses_repeated_page_furniture() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed on presentation fixture: exit {:?}, stderr:\n{}",
+        "pdfp failed on presentation fixture: exit {:?}, stderr:\n{}",
         result.status.code(),
         String::from_utf8_lossy(&result.stderr)
     );
@@ -244,10 +244,10 @@ fn golden_magazine_caps_decorative_images_on_front_page() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed on magazine fixture: exit {:?}, stderr:\n{}",
+        "pdfp failed on magazine fixture: exit {:?}, stderr:\n{}",
         result.status.code(),
         String::from_utf8_lossy(&result.stderr)
     );
@@ -278,7 +278,7 @@ fn golden_corpus_sweep() {
             continue;
         }
 
-        let result = run_cnv(&pdf, &out);
+        let result = run_pdfp(&pdf, &out);
 
         if !result.status.success() {
             failures.push(format!(
@@ -355,10 +355,10 @@ fn golden_snapshot_attention_page_1() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed: {}",
+        "pdfp failed: {}",
         String::from_utf8_lossy(&result.stderr)
     );
 
@@ -425,10 +425,10 @@ fn golden_snapshot_invoice_and_form_structure() {
     std::fs::create_dir_all(&out).unwrap();
 
     for pdf in [&invoice_pdf, &form_pdf] {
-        let result = run_cnv(pdf, &out);
+        let result = run_pdfp(pdf, &out);
         assert!(
             result.status.success(),
-            "cnv failed on {}: {}",
+            "pdfp failed on {}: {}",
             pdf.display(),
             String::from_utf8_lossy(&result.stderr)
         );
@@ -468,10 +468,10 @@ fn golden_snapshot_financial_statement_structure() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_cnv(&pdf, &out);
+    let result = run_pdfp(&pdf, &out);
     assert!(
         result.status.success(),
-        "cnv failed on {}: {}",
+        "pdfp failed on {}: {}",
         pdf.display(),
         String::from_utf8_lossy(&result.stderr)
     );

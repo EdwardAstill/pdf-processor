@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use httpmock::Method::POST;
 use httpmock::MockServer;
 
-// The `hybrid` module lives inside the `cnv` binary crate, so we can't
-// `use cnv::hybrid::...` from integration tests. Instead, drive the hybrid
+// The `hybrid` module lives inside the `pdfp` binary crate, so we can't
+// `use pdfp::hybrid::...` from integration tests. Instead, drive the hybrid
 // path through the public CLI binary — that's what users actually hit.
 use std::process::Command;
 
@@ -29,7 +29,7 @@ fn optional_fixture(rel: &str) -> Option<PathBuf> {
 }
 
 fn bin_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_cnv"))
+    PathBuf::from(env!("CARGO_BIN_EXE_pdfp"))
 }
 
 #[test]
@@ -70,11 +70,11 @@ fn hybrid_docling_uses_markdown_from_mock_server() {
         .arg("--hybrid-policy")
         .arg("all")
         .output()
-        .expect("failed to invoke cnv");
+        .expect("failed to invoke pdfp");
 
     assert!(
         output.status.success(),
-        "cnv --hybrid docling failed: {}",
+        "pdfp --hybrid docling failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -127,11 +127,11 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
         .arg("--hybrid-timeout-secs")
         .arg("5")
         .output()
-        .expect("failed to invoke cnv");
+        .expect("failed to invoke pdfp");
 
     assert!(
         output.status.success(),
-        "cnv must exit 0 even when backend fails per-page — local output is the fallback"
+        "pdfp must exit 0 even when backend fails per-page — local output is the fallback"
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -186,11 +186,11 @@ fn hybrid_auto_routes_scan_like_document_to_mock_backend() {
         .arg("--hybrid-url")
         .arg(server.base_url())
         .output()
-        .expect("failed to invoke cnv");
+        .expect("failed to invoke pdfp");
 
     assert!(
         output.status.success(),
-        "cnv --hybrid docling failed: {}",
+        "pdfp --hybrid docling failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -226,10 +226,10 @@ fn hybrid_off_produces_same_output_as_before_phase_2() {
         .arg(&out_dir)
         // --hybrid defaults to off; assert by omission.
         .output()
-        .expect("failed to invoke cnv");
+        .expect("failed to invoke pdfp");
     assert!(
         output.status.success(),
-        "cnv failed: {}",
+        "pdfp failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -272,11 +272,11 @@ fn hybrid_live() {
         .arg("--hybrid-timeout-secs")
         .arg("600")
         .output()
-        .expect("failed to invoke cnv");
+        .expect("failed to invoke pdfp");
 
     assert!(
         output.status.success(),
-        "cnv --hybrid docling failed (is docling-serve up at {url}?): {}",
+        "pdfp --hybrid docling failed (is docling-serve up at {url}?): {}",
         String::from_utf8_lossy(&output.stderr)
     );
 

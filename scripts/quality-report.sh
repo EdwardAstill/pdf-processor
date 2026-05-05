@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -u
 
-ROOT="${CNV_QUALITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-CORPUS="${CNV_QUALITY_CORPUS:-"$ROOT/test-corpus"}"
-OUT="${CNV_QUALITY_OUT:-/tmp/cnv-quality}"
-BIN="${CNV_QUALITY_BIN:-"$ROOT/target/debug/cnv"}"
+ROOT="${PDFP_QUALITY_ROOT:-${CNV_QUALITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+CORPUS="${PDFP_QUALITY_CORPUS:-${CNV_QUALITY_CORPUS:-"$ROOT/test-corpus"}}"
+OUT="${PDFP_QUALITY_OUT:-${CNV_QUALITY_OUT:-/tmp/pdfp-quality}}"
+BIN="${PDFP_QUALITY_BIN:-${CNV_QUALITY_BIN:-"$ROOT/target/debug/pdfp"}}"
 
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -33,7 +33,7 @@ mkdir -p "$OUT"
 rm -f "$OUT/report.json"
 
 if [[ ! -x "$BIN" ]]; then
-  cargo build --quiet --bin cnv --manifest-path "$ROOT/Cargo.toml"
+  cargo build --quiet --bin pdfp --manifest-path "$ROOT/Cargo.toml"
 fi
 
 printf '{"status":"ok","corpus":"%s","output":"%s","cases":[\n' \

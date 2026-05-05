@@ -17,8 +17,8 @@ fn quality_report_skips_cleanly_when_corpus_is_absent() {
 
     let result = Command::new("bash")
         .arg(root.join("scripts/quality-report.sh"))
-        .env("CNV_QUALITY_CORPUS", &missing_corpus)
-        .env("CNV_QUALITY_OUT", &output_dir)
+        .env("PDFP_QUALITY_CORPUS", &missing_corpus)
+        .env("PDFP_QUALITY_OUT", &output_dir)
         .output()
         .expect("quality report script should be runnable with bash");
 

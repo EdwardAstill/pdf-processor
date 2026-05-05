@@ -4,20 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project purpose
 
-`cnv` is a multi-format file converter. It converts documents (PDF, DOCX, EPUB, PPTX, HTML) into AI-friendly markdown, converts Markdown to Typst, and converts SVG to PNG. Single self-contained Rust binary with no runtime dependencies.
+`pdf-processor` is a local PDF processor. The installed command is `pdfp`.
+Its mature workflow converts PDFs into AI-friendly markdown, and the same
+binary is growing inspection, search, page operations, imposition, and resize
+commands.
 
 ## Build and test
 
 ```bash
 # Prerequisites: clang, libclang-dev (for mupdf bindgen)
-cargo build --release        # binary at target/release/cnv
-cargo test                   # 95 unit tests
+cargo build --release        # binary at target/release/pdfp
+cargo test
 cargo clippy -- -D warnings  # must be clean before committing
 
 # Run a single test
-cargo test typst::latex2typst::tests::test_frac
+cargo test processor::page_range
 # Run all tests in a module
-cargo test typst::converter::tests
+cargo test processor::
 ```
 
 First `cargo build` is slow (~5 min) because mupdf bundles ~55 MB of C source compiled via `cc`. Subsequent builds are incremental.
@@ -25,17 +28,14 @@ First `cargo build` is slow (~5 min) because mupdf bundles ~55 MB of C source co
 ### Usage
 
 ```bash
-cnv paper.pdf                          # PDF → raw markdown (default)
-cnv paper.pdf -f rag --chunk-size 800  # PDF → RAG chunks
-cnv paper.docx -f karpathy             # DOCX → wiki-style markdown
-cnv book.epub                          # EPUB → raw markdown
-cnv slides.pptx -o ./notes/            # PPTX → markdown
-cnv page.html -f kg                    # HTML → knowledge graph JSON
-cnv notes.md                           # Markdown → Typst (default for .md)
-cnv notes.md --paper a4 --stdout       # Markdown → Typst with paper size, to stdout
-cnv diagram.svg                        # SVG → PNG (default for .svg)
-cnv "papers/*.pdf" -f rag -o ./out/    # glob input
-cnv ./papers/                          # directory input (all supported types)
+pdfp paper.pdf                         # PDF → markdown, compatibility alias
+pdfp convert paper.pdf -o out/         # explicit markdown conversion
+pdfp inspect paper.pdf --json          # page metadata and scan-like signals
+pdfp search paper.pdf "needle" --json  # embedded-text search
+pdfp pages extract paper.pdf --pages 1-3 -o excerpt.pdf
+pdfp pages merge one.pdf two.pdf -o merged.pdf
+pdfp impose 2up paper.pdf -o two-up.pdf
+pdfp page resize paper.pdf --paper a4 --fit contain -o resized.pdf
 ```
 
 ## Architecture overview

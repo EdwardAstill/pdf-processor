@@ -2,13 +2,15 @@
 
 What is tested, how to run the tests, and which paths remain unverified.
 
-Active scope note: the main `cnv` binary is now PDF-to-markdown only. Legacy multi-format work lives under `legacy/`.
+Active scope note: the main `pdfp` binary is now a local PDF processor. Markdown conversion is the mature workflow; inspect, search, page operations, imposition, and resize are covered by focused processor tests.
 
 ## Automated tests (`cargo test`)
 
 | Layer | Command | Count | Runtime |
 | --- | --- | ---: | ---: |
-| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin cnv` | 100 | ~0.05 s |
+| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin pdfp` | 100 | ~0.05 s |
+| CLI help smoke tests | `cargo test --test cli_help` | one pass over every command path | ~0.05 s |
+| Processor command units | `cargo test processor::` | focused parser/order tests | ~0.05 s |
 | Golden smoke/regression fixtures | `cargo test --test golden` | 4 (skip when fixtures are absent) | ~0.05 s+ |
 | Golden corpus sweep | `cargo test --test golden -- --ignored golden_corpus_sweep` | 1 (iterates 13 PDFs) | ~16 s |
 | Golden snapshot diff (attention page 1) | `cargo test --test golden -- --ignored golden_snapshot_attention_page_1` | 1 | ~3 s |
@@ -28,7 +30,7 @@ cargo test --test golden -- --ignored
 # → corpus/snapshot tests run when test-corpus/ is populated
 
 bash scripts/quality-report.sh
-# → writes /tmp/cnv-quality/report.json; exits 0 with SKIP if test-corpus/ is absent
+# → writes /tmp/pdfp-quality/report.json; exits 0 with SKIP if test-corpus/ is absent
 
 cargo clippy --all-targets -- -D warnings
 # → clean
@@ -37,9 +39,65 @@ cargo check --features pdfium-metadata
 # → compiles
 ```
 
+## Processor Command Smoke Tests
+
+Run these against the checked-in `example/pdf` fixtures after changing the command dispatcher, page operations, imposition, or resize code:
+
+```bash
+cargo build
+
+target/debug/pdfp convert example/pdf/golden__lorem.pdf -o target/compat-convert
+
+target/debug/pdfp inspect example/pdf/golden__lorem.pdf --json \
+  | jq '.page_count == 1'
+
+target/debug/pdfp search example/pdf/attention.pdf Attention --json \
+  | jq '(.matches | length) > 0'
+
+target/debug/pdfp pages extract \
+  example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-04_Presentation.pdf \
+  --pages 1-2 -o target/presentation-p1-p2.pdf
+
+target/debug/pdfp pages reorder \
+  example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-04_Presentation.pdf \
+  --pages 2,1 -o target/reordered.pdf
+
+target/debug/pdfp pages merge \
+  example/pdf/golden__lorem.pdf example/pdf/golden__lorem.pdf \
+  -o target/merged.pdf
+
+target/debug/pdfp impose 2up \
+  example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-04_Presentation.pdf \
+  -o target/2up.pdf
+
+target/debug/pdfp impose booklet \
+  example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-04_Presentation.pdf \
+  -o target/booklet.pdf
+
+target/debug/pdfp page resize example/pdf/golden__lorem.pdf \
+  --paper a4 --fit contain -o target/lorem-a4.pdf
+```
+
+Expected checks:
+
+- `pdfp inspect target/presentation-p1-p2.pdf --json | jq '.page_count == 2'`
+- `pdfp inspect target/reordered.pdf --json | jq '.page_count == 2'`
+- `pdfp inspect target/merged.pdf --json | jq '.page_count == 2'`
+- `pdfp inspect target/2up.pdf --json | jq '.page_count == 4'`
+- `pdfp inspect target/booklet.pdf --json | jq '(.page_count % 2) == 0'`
+- `pdfp inspect target/lorem-a4.pdf --json | jq '.pages[0].width >= 594 and .pages[0].height >= 841'`
+
+Current processor limitations:
+
+- `pdfp search` searches embedded PDF text only. Scanned pages need the planned OCR sidecar before matches appear.
+- `pages merge` and `pages reorder` preserve page contents but do not yet guarantee document-level metadata, outlines, forms, or annotations.
+- `impose` and `page resize` validate page count and geometry first; visual fidelity should still be checked by rendering sample outputs before release.
+
 ### What the tests actually cover
 
 - **XY-Cut++ reading order** — 16 unit tests in `src/layout/xycut.rs::tests` exercising two-column pages, spanning titles, narrow-outlier retry, cross-layout pre-masking, and degenerate inputs.
+- **CLI help** — `tests/cli_help.rs` runs `pdfp --help` plus every nested command help path, including `pdfp pages extract --help`, `pdfp impose booklet --help`, and `pdfp page resize --help`.
+- **Processor CLI and PDF operations** — page range parsing, inspect/search smoke checks, safe extract/delete/split, graft-based reorder/merge, booklet ordering, 2-up page count, and A4 resize geometry.
 - **Classifier heuristics** — tests in `src/layout/classifier.rs::tests` covering each `BlockKind` detection rule; the Phase 3 metadata tests verify struct-tree overrides and bold-at-body-size promotion using a mock `PageMetadata`.
 - **Metadata lookup** — 6 tests in `src/pdf/metadata.rs::tests` covering overlap scoring, bbox matching, and the stub loader.
 - **PDF extraction subscript/superscript logic** — 20+ tests in `src/pdf/extractor.rs::tests` exercising classify_char_script, group_into_text_rows, and real-world traces from AISC-360.
@@ -48,7 +106,7 @@ cargo check --features pdfium-metadata
 - **Hybrid client parsing** — 5 unit tests on `ConvertResponse` deserialisation, all documented fallback keys (`md_content`, `content_md`, nested under `document`).
 - **Hybrid end-to-end** (via `httpmock` in `tests/hybrid.rs`) — three scenarios:
   - Mock server returns canned markdown → output contains it; mock hit count asserted.
-  - Mock server returns 502 → per-page failure is logged and the local path's output is kept; cnv exits 0.
+  - Mock server returns 502 → per-page failure is logged and the local path's output is kept; pdfp exits 0.
   - `--hybrid off` produces byte-identical output to the Phase 1 snapshot — regression guard across all later phases.
 - **Corpus sweep** — invokes the built binary against 13 real PDFs (arXiv ML papers + OpenDataLoader fixtures including a Chinese scan and an Italian invoice). Asserts exit 0, non-empty markdown, and ≥ 1 image extracted for figure-heavy papers.
 - **Snapshot** — `tests/snapshots/attention_page_1.md` is the authoritative reference for the local path's reading order + classification on a two-column academic paper. Regenerate with `GOLDEN_UPDATE=1`.
@@ -60,8 +118,8 @@ Under ignored `test-corpus/`:
 The quality harness also reads this ignored directory. Keep PDFs and extracted images out of git; `tests/quality.rs` verifies the harness reports a clear `SKIP` instead of pretending quality coverage exists when the corpus is absent. Override paths when needed:
 
 ```bash
-CNV_QUALITY_CORPUS=/path/to/test-corpus \
-CNV_QUALITY_OUT=/tmp/cnv-quality \
+PDFP_QUALITY_CORPUS=/path/to/test-corpus \
+PDFP_QUALITY_OUT=/tmp/pdfp-quality \
   bash scripts/quality-report.sh
 ```
 
@@ -115,11 +173,11 @@ curl -s http://localhost:5001/v1/healthz
 DOCLING_URL=http://localhost:5001 \
   cargo test --test hybrid -- --ignored hybrid_live
 
-# 4. If hybrid_live fails, run cnv manually and inspect the raw response:
+# 4. If hybrid_live fails, run pdfp manually and inspect the raw response:
 RUST_LOG=debug cargo run -- test-corpus/math-number-theory.pdf \
   --hybrid docling --hybrid-url http://localhost:5001 \
-  --hybrid-policy all --hybrid-cache-dir /tmp/cnv-docling-cache \
-  --verbose -o /tmp/cnv-live-math
+  --hybrid-policy all --hybrid-cache-dir /tmp/pdfp-docling-cache \
+  --verbose -o /tmp/pdfp-live-math
 ```
 
 With `uv`/`pip` (requires Python 3.10–3.12 — not 3.14):
@@ -160,7 +218,7 @@ brew install pdfium
 # Verify the binding works:
 cargo run --features pdfium-metadata -- \
   test-corpus/golden/pdfua-1-reference-suite-1-1/some-tagged.pdf \
-  -o /tmp/cnv-pdfium-test --verbose
+  -o /tmp/pdfp-pdfium-test --verbose
 
 # Eyeball the output markdown for heading hierarchy.
 # If pdfium failed to bind, you will see:
@@ -176,9 +234,9 @@ If the feature builds but the output does not improve over the default build on 
 Automated tests can only assert on non-empty, non-panicking output. Quality is a human judgment. Before shipping a release:
 
 ```bash
-rm -rf /tmp/cnv-eyeball && mkdir /tmp/cnv-eyeball
-cargo run --release -- test-corpus/ -o /tmp/cnv-eyeball --verbose
-ls -la /tmp/cnv-eyeball/*/
+rm -rf /tmp/pdfp-eyeball && mkdir /tmp/pdfp-eyeball
+cargo run --release -- test-corpus/ -o /tmp/pdfp-eyeball --verbose
+ls -la /tmp/pdfp-eyeball/*/
 # then read a few of the generated .md files in your editor.
 ```
 
@@ -193,7 +251,7 @@ Things to look for:
 ## How to add a new test
 
 - **Unit test** — put it in a `#[cfg(test)] mod tests` block in the module under test. Reach for this first; unit tests are the fastest, most precise diagnostic.
-- **Integration test** — new file under `tests/`. Use `env!("CARGO_BIN_EXE_cnv")` to locate the binary (cargo rebuilds it automatically before running integration tests). Mark slow tests `#[ignore]` with a doc-comment explaining how to invoke them.
+- **Integration test** — new file under `tests/`. Use `env!("CARGO_BIN_EXE_pdfp")` to locate the binary (cargo rebuilds it automatically before running integration tests). Mark slow tests `#[ignore]` with a doc-comment explaining how to invoke them.
 - **New test PDF** — drop under ignored `test-corpus/` if it's an ML paper / typical document, or `test-corpus/golden/` if it comes from an upstream fixture set. Append to `CORPUS_PATHS` in `tests/golden.rs`. If the PDF should have images, append to `EXPECTS_IMAGES` too. If it's a tagged PDF intended for Phase 3 verification, it can stay in `test-corpus/golden/pdfua-1-reference-suite-1-1/`.
 
 ## Known non-determinism

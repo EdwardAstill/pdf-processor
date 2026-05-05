@@ -200,7 +200,7 @@ mod tests {
     fn apply_uses_cached_markdown_without_backend_or_pdf_extraction() {
         let source_pdf = Path::new("missing-source.pdf");
         let cache_dir =
-            std::env::temp_dir().join(format!("cnv-hybrid-cache-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("pdfp-hybrid-cache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_dir);
         std::fs::create_dir_all(&cache_dir).unwrap();
 
