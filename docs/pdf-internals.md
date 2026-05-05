@@ -95,6 +95,8 @@ pdfp convert catalogue.pdf --tables off
 
 `auto` emits a GFM Markdown table when confidence is high. When a region is table-like but too ambiguous, it falls back to a fenced `text` layout block rather than collapsing the table into a long paragraph. `layout` forces that fixed-width fallback, which is useful for wide manufacturer catalogues. `native` forces Markdown output for detected coordinate tables. `--debug-tables` writes JSON under `<output>/debug/tables/`.
 
+For review-sensitive standards work, `--conservative` forces the safe table fallback, keeps formulas in audit mode, and disables rendered figure snapshot candidates. Use it when a wrong reconstruction is worse than a preserved visual/text fallback.
+
 This is not OCR. It depends on a usable text layer. Scanned or damaged-text tables still need `--ocr auto`, `--ocr force`, or a hybrid backend before coordinate reconstruction can see words.
 
 ## Coordinate systems — two gotchas
@@ -142,7 +144,7 @@ When does this happen?
 - **Type 3 fonts.** Since the glyph is a vector-drawn path, there is nothing intrinsically tying it to a Unicode codepoint. The PDF might or might not supply a mapping.
 - **Custom encodings.** Some older PDFs use `/Differences` arrays in their encoding dict to remap glyph positions — if this remapping is not reflected in the ToUnicode, text comes out as garbage.
 
-What would fix it? **An OCR pass over the rendered pixels** — which is exactly what Docling's hybrid mode does — or a dedicated math-OCR pass on equation regions (pix2tex, texify, UniMERNet). This is the plan for Phase 2b and beyond.
+What helps? A generic OCR pass can recover some text, but formulas need a formula-specific path. `pdfp` now detects likely formula regions from word geometry and can write `--debug-formulas` JSON plus rendered crops under `debug/formulas/`. Those crops are the right unit for a dedicated formula recognizer such as UniMERNet/PDF-Extract-Kit or a hosted API such as Mathpix. Today, the first recovery backend is Docling formula enrichment through `--hybrid docling --formulas hybrid`.
 
 ### Ligatures
 
@@ -271,8 +273,8 @@ Snapshot detection is deliberately heuristic. It improves complete visual figure
 
 ### Fundamentally problematic
 
-- Glyphs whose font has no ToUnicode mapping — **silently dropped**. Biggest quality risk for math-heavy PDFs. Mitigations: hybrid Docling path (Phase 2) runs OCR; Phase 3 pdfium-render metadata could help detect when a block has many such glyphs and flag the page for triage; Phase 4+ could integrate pix2tex / UniMERNet for per-crop math OCR.
-- Mathematical equations as a whole. A PDF equation is rendered as a small block of glyph positions, sometimes drawn from multiple fonts, sometimes with symbols drawn as vector paths in Type 3 fonts. There is no `(equation)` block type in PDF. Reconstructing LaTeX from that requires vision-model OCR — no heuristic approach gets above about 60 % BLEU.
+- Glyphs whose font has no ToUnicode mapping — **silently dropped**. Biggest quality risk for math-heavy PDFs. Mitigations: formula candidate detection and `--debug-formulas` crops for audit; hybrid Docling formula enrichment; future per-crop formula OCR with UniMERNet/PDF-Extract-Kit or Mathpix.
+- Mathematical equations as a whole. A PDF equation is rendered as a small block of glyph positions, sometimes drawn from multiple fonts, sometimes with symbols drawn as vector paths in Type 3 fonts. There is no `(equation)` block type in PDF. `pdfp` can detect likely equation regions and write review crops/metadata, but reliable LaTeX reconstruction requires a formula recognizer.
 
 ## Further reading
 

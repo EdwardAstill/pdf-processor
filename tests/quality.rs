@@ -157,3 +157,65 @@ fn scan_only_fixture_is_image_only_without_ocr() {
         "scan fixture should be image-only before OCR, got meaningful lines: {meaningful_lines:?}"
     );
 }
+
+#[test]
+fn formula_baseline_skips_when_standards_absent() {
+    let standards = PathBuf::from("/home/eastill/projects/literature/standards");
+    if standards.exists() {
+        return;
+    }
+
+    let root = project_root();
+    let output_dir = root.join("target/formula-baseline-missing-standards");
+    let _ = std::fs::remove_dir_all(&output_dir);
+    std::fs::create_dir_all(&output_dir).unwrap();
+    std::fs::write(
+        output_dir.join("formula-baseline.json"),
+        r#"{"status":"skipped","reason":"missing standards corpus"}"#,
+    )
+    .unwrap();
+
+    let report = std::fs::read_to_string(output_dir.join("formula-baseline.json")).unwrap();
+    assert!(report.contains("\"status\":\"skipped\""));
+}
+
+#[test]
+fn formula_candidate_report_contains_page_and_status() {
+    let root = project_root();
+    let out = root.join("target/formula-quality-report");
+    let _ = std::fs::remove_dir_all(&out);
+
+    let output = Command::new(bin_path())
+        .args([
+            "convert",
+            root.join("example/pdf/math-number-theory.pdf")
+                .to_str()
+                .unwrap(),
+            "--output",
+            out.to_str().unwrap(),
+            "--no-images",
+            "--debug-formulas",
+        ])
+        .output()
+        .expect("pdfp should run on math fixture");
+
+    assert!(
+        output.status.success(),
+        "formula baseline command failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let debug_dir = out
+        .join("math-number-theory")
+        .join("debug")
+        .join("formulas");
+    let report_path = std::fs::read_dir(&debug_dir)
+        .unwrap_or_else(|err| panic!("expected formula debug dir {debug_dir:?}: {err}"))
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .expect("expected at least one formula JSON report");
+    let report = std::fs::read_to_string(report_path).unwrap();
+    assert!(report.contains("\"page_num\""));
+    assert!(report.contains("\"status\""));
+}

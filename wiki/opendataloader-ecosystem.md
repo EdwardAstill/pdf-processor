@@ -108,6 +108,7 @@ The highest-value ideas to borrow are:
 
 5. **Modular table and formula handling**
    `PDF-Extract-Kit` makes it obvious that tables and formulas need specialized treatment. `cnv` should keep hard-table parsing separate from generic paragraph rendering.
+   In `pdfp`, formula handling follows the same separation: local geometry detects and audits formula candidates, Docling handles first-pass formula enrichment, and future UniMERNet/PDF-Extract-Kit sidecars can consume `debug/formulas/` crops.
 
 6. **Cross-page table continuity**
    `MinerU` treats cross-page structure as a real problem. `cnv` should explicitly merge continuation tables rather than handling each page in isolation.

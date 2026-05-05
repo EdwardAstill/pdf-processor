@@ -121,6 +121,13 @@ Bad cleanup:
 1. per-page extraction confidence
 2. better handling of mixed text/image PDFs
 3. stronger math and symbol recovery where fonts are weak
+
+Formula gaps are now handled as an explicit audit path. `--debug-formulas`
+writes candidate JSON and rendered equation crops, while `--hybrid docling
+--formulas hybrid` is the first recovery path for formula enrichment. This is
+separate from OCRmyPDF: generic OCR can make scans searchable, but formula
+quality needs a formula-aware recognizer such as Docling enrichment,
+UniMERNet/PDF-Extract-Kit, or a hosted Mathpix-style backend.
 4. cleaner handoff from extraction to structure recovery
 
 ## Related pages

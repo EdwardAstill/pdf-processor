@@ -67,13 +67,19 @@ impl ScanReport {
 
 /// Should this page be routed through the hybrid backend?
 pub fn should_route(page: &Page) -> bool {
-    has_table(page) || is_math_heavy(page) || is_low_density(page)
+    has_table(page) || has_formula_candidate(page) || is_math_heavy(page) || is_low_density(page)
 }
 
 pub fn has_table(page: &Page) -> bool {
     page.blocks
         .iter()
         .any(|b| matches!(b.kind, BlockKind::TableCell { .. }))
+}
+
+pub fn has_formula_candidate(page: &Page) -> bool {
+    page.blocks
+        .iter()
+        .any(|b| matches!(b.kind, BlockKind::Formula { .. }))
 }
 
 pub fn is_math_heavy(page: &Page) -> bool {
@@ -260,6 +266,24 @@ mod tests {
         );
         assert!(has_table(&p));
         assert!(should_route(&p));
+    }
+
+    #[test]
+    fn formula_candidate_routes_page() {
+        let page = page(
+            vec![block(
+                BlockKind::Formula {
+                    latex: "F = m a".to_string(),
+                    display: true,
+                },
+                "F = m a",
+                Bbox::new(250.0, 300.0, 360.0, 320.0),
+            )],
+            612.0,
+            792.0,
+        );
+
+        assert!(should_route(&page));
     }
 
     #[test]

@@ -88,12 +88,15 @@ Useful conversion flags:
 | --- | --- |
 | `-o`, `--output <DIR>` | Output directory |
 | `--no-images` | Skip extracted image files |
+| `--conservative` | Prefer review-safe fallbacks over heuristic reconstruction |
 | `--figures embedded|snapshot|both|none` | Choose embedded image objects, rendered figure snapshots, both, or no image output |
 | `--figure-dpi <N>` | Snapshot render resolution, default `200` |
 | `--figure-padding <PTS>` | Padding around detected figure regions, default `8.0` |
 | `--debug-figures` | Write figure candidate JSON under `debug/figures/` |
 | `--tables auto|native|layout|off` | Choose coordinate table handling |
 | `--debug-tables` | Write table candidate JSON under `debug/tables/` |
+| `--formulas auto|local|hybrid|off` | Detect, audit, or route formula candidates |
+| `--debug-formulas` | Write formula candidate JSON and crops under `debug/formulas/` |
 | `--ocr off|auto|force` | Run optional local OCR preprocessing |
 | `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
 | `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
@@ -133,6 +136,21 @@ pdfp convert paper.pdf -o out/ --figures none
 
 `embedded` mode is fast and preserves the current `images/pageN_imgM.png` behavior, but it only sees raster image objects. `snapshot` mode renders detected page regions to `images/pageN_figM.png`, so it can include vector graphics, labels, legends, axes, and multi-panel figures that are not stored as one embedded image. Snapshot detection is heuristic; use `--debug-figures` when tuning false positives or missed figures. Higher `--figure-dpi` values produce sharper images but increase runtime and output size.
 
+Conservative mode:
+
+```sh
+# Review-safe first pass: preserve ambiguous regions instead of guessing.
+pdfp convert standard.pdf -o out/ --conservative --debug-tables --debug-formulas
+```
+
+`--conservative` is a preset for standards and other review-sensitive PDFs. It overrides conversion modes to avoid speculative reconstruction:
+
+- figures: embedded assets only, no rendered snapshot candidates
+- tables: fixed-width `layout` blocks instead of inferred Markdown tables
+- formulas: `auto` audit mode, no local heuristic `$$` rendering
+
+Use this mode when omissions or wrong reconstructions are more costly than having a review marker or a visually preserved fallback.
+
 Table modes:
 
 ```sh
@@ -152,6 +170,24 @@ pdfp convert catalogue.pdf -o out/ --tables off
 `pdfp` reconstructs born-digital tables from MuPDF word coordinates. This works best when the PDF already has a usable text layer, such as product catalogues with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes detected table bboxes, rows, confidence, and render mode under `debug/tables/`.
 
 OCR is a separate concern. If the page is a scan with no usable text layer, use `--ocr auto` or `--ocr force` before expecting table reconstruction to work.
+
+Formula modes:
+
+```sh
+# Default: detect formula candidates and warn on gaps without injecting heuristic math.
+pdfp convert standard.pdf -o out/ --formulas auto
+
+# Force local formula candidate rendering for inspection.
+pdfp convert standard.pdf -o out/ --formulas local --debug-formulas
+
+# Use formula candidates to route pages through Docling formula enrichment.
+pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
+
+# Disable formula detection.
+pdfp convert standard.pdf -o out/ --formulas off
+```
+
+PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode is therefore an audit path: it detects likely display-equation regions and writes a formula coverage ledger when `--debug-formulas` is enabled, but it does not inject heuristic math into the Markdown. `--formulas local` is available for inspection only and does not guarantee perfect LaTeX. `--debug-formulas` writes page JSON and `pageN_formulaM.png` crops under `debug/formulas/`. Use the crops for standard-processing review or for a future formula sidecar such as UniMERNet/PDF-Extract-Kit. For recovery today, run a Docling backend and use `--hybrid docling --formulas hybrid`.
 
 ## Local OCR
 

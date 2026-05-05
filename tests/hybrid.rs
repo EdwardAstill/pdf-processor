@@ -95,6 +95,60 @@ fn hybrid_docling_uses_markdown_from_mock_server() {
 }
 
 #[test]
+fn hybrid_docling_preserves_display_formula_markdown() {
+    let root = project_root();
+    let pdf = root.join("example/pdf/math-number-theory.pdf");
+    if !pdf.exists() {
+        eprintln!("SKIP: {} missing", pdf.display());
+        return;
+    }
+    let server = MockServer::start();
+    let canned = "# Formula page\n\n$$ a^2 + b^2 = c^2 $$\n\nRecovered by Docling.\n";
+
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/v1/convert/file");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(format!(
+                "{{\"document\": {{\"md_content\": {}}}}}",
+                serde_json::to_string(canned).unwrap()
+            ));
+    });
+
+    let out_dir = root.join("target/hybrid-formula-preserve");
+    let _ = std::fs::remove_dir_all(&out_dir);
+
+    let output = Command::new(bin_path())
+        .arg(&pdf)
+        .arg("-o")
+        .arg(&out_dir)
+        .arg("--hybrid")
+        .arg("docling")
+        .arg("--hybrid-url")
+        .arg(server.base_url())
+        .arg("--formulas")
+        .arg("hybrid")
+        .arg("--no-images")
+        .output()
+        .expect("failed to invoke pdfp");
+
+    assert!(
+        output.status.success(),
+        "pdfp --hybrid docling failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let md_path = out_dir.join("math-number-theory/math-number-theory.md");
+    assert!(md_path.exists(), "expected output at {}", md_path.display());
+    let content = std::fs::read_to_string(&md_path).unwrap();
+    assert!(
+        content.contains("$$ a^2 + b^2 = c^2 $$"),
+        "display math from mock must round-trip verbatim; got:\n{content}",
+    );
+    assert!(mock.hits() >= 1, "expected at least one formula page route");
+}
+
+#[test]
 fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
     // Phase 2b semantics: per-page backend failures are logged to stderr and
     // the page keeps its locally-rendered output. The process exits 0 — the

@@ -99,12 +99,15 @@ Main convert options:
 | `--min-h-gap <pts>` | `8.0` | XY-Cut horizontal-cut tuning |
 | `--min-v-gap <pts>` | `12.0` | XY-Cut vertical-cut tuning |
 | `--no-images` | off | Skip image extraction |
+| `--conservative` | off | Prefer review-safe fallbacks over heuristic reconstruction |
 | `--figures <MODE>` | `embedded` | Image output mode: `embedded`, `snapshot`, `both`, or `none` |
 | `--figure-dpi <N>` | `200` | DPI for rendered figure snapshots |
 | `--figure-padding <pts>` | `8.0` | Padding around detected snapshot regions |
 | `--debug-figures` | off | Write figure candidate JSON under `debug/figures/` |
 | `--tables <MODE>` | `auto` | Table output mode: `auto`, `native`, `layout`, or `off` |
 | `--debug-tables` | off | Write table candidate JSON under `debug/tables/` |
+| `--formulas <MODE>` | `auto` | Formula handling: `auto`, `local`, `hybrid`, or `off` |
+| `--debug-formulas` | off | Write formula candidate JSON and rendered crops under `debug/formulas/` |
 | `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
 | `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
 | `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
@@ -138,8 +141,17 @@ pdfp convert paper.pdf --figures both --debug-figures -o out/
 # Preserve hard catalogue tables as fixed-width layout blocks
 pdfp convert catalogue.pdf --tables layout -o out/
 
+# Review-safe conversion: no speculative Markdown tables or formula rendering
+pdfp convert standard.pdf --conservative --debug-formulas --debug-tables -o out/
+
 # Force coordinate-derived Markdown tables where possible
 pdfp convert catalogue.pdf --tables native --debug-tables -o out/
+
+# Audit formula candidates and rendered equation crops
+pdfp convert standard.pdf --debug-formulas -o out/
+
+# Route formula-heavy pages through Docling enrichment
+pdfp convert standard.pdf --hybrid docling --formulas hybrid -o out/
 
 # Hybrid assist for harder pages
 pdfp convert math-paper.pdf --hybrid docling -o out/
@@ -257,7 +269,11 @@ paper/
 
 The markdown uses standard headings, lists, fenced code blocks, GFM tables, and image references. By default, image links point at embedded image objects such as `![image](images/page1_img1.png)`. With `--figures snapshot`, image links point at rendered visual figure regions such as `![image](images/page1_fig1.png)`.
 
-Table handling is local and coordinate-based for born-digital PDFs. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` for engineering catalogues where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
+For review-sensitive work, start with `--conservative`. It keeps the conversion local and avoids speculative reconstruction: tables use fixed-width layout blocks, formulas are audited but not rendered as Markdown math, and rendered figure snapshots are disabled unless you explicitly run a separate inspection pass.
+
+Table handling is local and coordinate-based for born-digital PDFs. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` or `--conservative` for engineering catalogues where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
+
+Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry and warns about candidate pages, but it does not inject heuristic math into Markdown. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. Future local formula sidecars such as UniMERNet/PDF-Extract-Kit can consume the rendered crops. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
 
 Processor commands produce PDFs or JSON/human summaries. They currently preserve page contents conservatively, but outlines, document-level metadata, forms, and annotations are not yet guaranteed across merge/reorder/imposition workflows.
 

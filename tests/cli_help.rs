@@ -53,6 +53,7 @@ fn every_command_path_prints_help() {
             assert!(
                 stdout.contains("--figures")
                     && stdout.contains("--figure-dpi")
+                    && stdout.contains("--conservative")
                     && stdout.contains("--tables")
                     && stdout.contains("--debug-tables"),
                 "convert help should document figure and table controls:\n{stdout}"

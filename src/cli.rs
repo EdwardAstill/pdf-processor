@@ -63,6 +63,14 @@ pub struct ConvertOptions {
     #[arg(long)]
     pub no_images: bool,
 
+    /// Prefer audit/fallback output over heuristic reconstruction.
+    ///
+    /// Conservative mode avoids speculative Markdown tables, formula rendering,
+    /// and rendered figure snapshots. It is a preset for review-safe conversion;
+    /// debug flags may still be used to inspect candidates.
+    #[arg(long)]
+    pub conservative: bool,
+
     /// Figure/image output mode for markdown conversion
     #[arg(long, value_enum, default_value = "embedded")]
     pub figures: FigureMode,
@@ -86,6 +94,14 @@ pub struct ConvertOptions {
     /// Write table detection debug JSON under debug/tables/
     #[arg(long)]
     pub debug_tables: bool,
+
+    /// Formula handling mode for markdown conversion
+    #[arg(long, value_enum, default_value = "auto")]
+    pub formulas: FormulaMode,
+
+    /// Write formula detection debug JSON and crops under debug/formulas/
+    #[arg(long)]
+    pub debug_formulas: bool,
 
     /// Verbose output
     #[arg(short, long)]
@@ -437,6 +453,44 @@ pub enum TableMode {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormulaMode {
+    /// Detect formula candidates for warnings and debug audit files
+    Auto,
+    /// Force local formula candidate detection and rendering
+    Local,
+    /// Detect formula candidates for hybrid backend routing and audit
+    Hybrid,
+    /// Disable formula candidate detection
+    Off,
+}
+
+impl ConvertOptions {
+    pub fn effective_figure_mode(&self) -> FigureMode {
+        if self.conservative {
+            FigureMode::Embedded
+        } else {
+            self.figures
+        }
+    }
+
+    pub fn effective_table_mode(&self) -> TableMode {
+        if self.conservative {
+            TableMode::Layout
+        } else {
+            self.tables
+        }
+    }
+
+    pub fn effective_formula_mode(&self) -> FormulaMode {
+        if self.conservative {
+            FormulaMode::Auto
+        } else {
+            self.formulas
+        }
+    }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandaloneOcrMode {
     Auto,
     Force,
@@ -455,6 +509,54 @@ impl From<StandaloneOcrMode> for OcrMode {
 pub enum HybridPolicy {
     Auto,
     All,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn convert_options(conservative: bool) -> ConvertOptions {
+        ConvertOptions {
+            output: None,
+            min_h_gap: 8.0,
+            min_v_gap: 12.0,
+            no_images: false,
+            conservative,
+            figures: FigureMode::Snapshot,
+            figure_dpi: 200,
+            figure_padding: 8.0,
+            debug_figures: false,
+            tables: TableMode::Native,
+            debug_tables: false,
+            formulas: FormulaMode::Local,
+            debug_formulas: false,
+            verbose: false,
+            hybrid: HybridMode::Off,
+            hybrid_url: "http://localhost:5001".to_string(),
+            hybrid_timeout_secs: 600,
+            hybrid_policy: HybridPolicy::Auto,
+            hybrid_cache_dir: None,
+            ocr: OcrOptions::default(),
+        }
+    }
+
+    #[test]
+    fn conservative_mode_uses_review_safe_conversion_modes() {
+        let options = convert_options(true);
+
+        assert_eq!(options.effective_figure_mode(), FigureMode::Embedded);
+        assert_eq!(options.effective_table_mode(), TableMode::Layout);
+        assert_eq!(options.effective_formula_mode(), FormulaMode::Auto);
+    }
+
+    #[test]
+    fn non_conservative_mode_preserves_selected_conversion_modes() {
+        let options = convert_options(false);
+
+        assert_eq!(options.effective_figure_mode(), FigureMode::Snapshot);
+        assert_eq!(options.effective_table_mode(), TableMode::Native);
+        assert_eq!(options.effective_formula_mode(), FormulaMode::Local);
+    }
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]

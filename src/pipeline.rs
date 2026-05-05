@@ -5,12 +5,13 @@ use std::time::Duration;
 use anyhow::Context;
 
 use crate::batch;
-use crate::cli::{self, ConvertArgs, FigureMode};
+use crate::cli::{self, ConvertArgs, FigureMode, FormulaMode, TableMode};
 use crate::document::types::{Block, BlockKind, Document, ImageRef, Page, RawPage};
 use crate::figure::{
     detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
 };
 use crate::formats;
+use crate::formula::{detect_formula_candidates, FormulaCandidate};
 use crate::hybrid;
 use crate::layout::{
     classifier::Classifier,
@@ -83,16 +84,11 @@ fn build_document_from_raw(
     let classifier = Classifier::new_for_document(&raw_pages);
     let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
-    let extract_embedded_images = !args.options.no_images
-        && matches!(
-            args.options.figures,
-            FigureMode::Embedded | FigureMode::Both
-        );
-    let extract_snapshot_figures = !args.options.no_images
-        && matches!(
-            args.options.figures,
-            FigureMode::Snapshot | FigureMode::Both
-        );
+    let figure_mode = args.options.effective_figure_mode();
+    let extract_embedded_images =
+        !args.options.no_images && matches!(figure_mode, FigureMode::Embedded | FigureMode::Both);
+    let extract_snapshot_figures =
+        !args.options.no_images && matches!(figure_mode, FigureMode::Snapshot | FigureMode::Both);
 
     let page_build_context = PageBuildContext {
         pdf_path,
@@ -105,10 +101,18 @@ fn build_document_from_raw(
         args,
     };
 
-    let pages = raw_pages
-        .into_iter()
-        .map(|raw_page| build_page(raw_page, &page_build_context))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut pages = Vec::new();
+    let mut formula_candidate_pages = 0usize;
+    let mut formula_candidate_count = 0usize;
+    for raw_page in raw_pages {
+        let built = build_page(raw_page, &page_build_context)?;
+        if built.formula_candidate_count > 0 {
+            formula_candidate_pages += 1;
+            formula_candidate_count += built.formula_candidate_count;
+        }
+        pages.push(built.page);
+    }
+    warn_on_formula_candidate_summary(args, formula_candidate_pages, formula_candidate_count);
 
     Ok(Document {
         source_path: pdf_path.to_path_buf(),
@@ -128,7 +132,12 @@ struct PageBuildContext<'a> {
     args: &'a ConvertArgs,
 }
 
-fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Result<Page> {
+struct BuiltPage {
+    page: Page,
+    formula_candidate_count: usize,
+}
+
+fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Result<BuiltPage> {
     let mut text_blocks = std::mem::take(&mut raw_page.blocks);
     let order = build_xycut_order(&text_blocks, ctx.xycut_config);
     assign_reading_order(&order, &mut text_blocks);
@@ -141,17 +150,35 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         words: Vec::new(),
         image_refs: Vec::new(),
     };
-    let table_candidates =
-        detect_coordinate_tables(&raw_page.words, raw_page.width, ctx.args.options.tables);
-    if ctx.args.options.debug_tables && !matches!(ctx.args.options.tables, cli::TableMode::Off) {
+    let table_mode = ctx.args.options.effective_table_mode();
+    let formula_mode = ctx.args.options.effective_formula_mode();
+    let table_candidates = detect_coordinate_tables(&raw_page.words, raw_page.width, table_mode);
+    if ctx.args.options.debug_tables && !matches!(table_mode, TableMode::Off) {
         write_table_debug(ctx.output_dir, raw_page.page_num, &table_candidates)?;
+    }
+    let mut formula_candidates = if matches!(formula_mode, FormulaMode::Off) {
+        Vec::new()
+    } else {
+        detect_formula_candidates(&raw_page)
+    };
+    if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
+        write_formula_debug(
+            ctx.pdf_path,
+            ctx.output_dir,
+            raw_page.page_num,
+            &mut formula_candidates,
+            ctx.args.options.figure_dpi,
+        )?;
     }
     let metadata = pdf::metadata::load_page_metadata(ctx.pdf_path, raw_page.page_num);
     let text_classified =
         ctx.classifier
             .classify_page_with_metadata(text_blocks, &page_shell, metadata.as_ref());
     let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
+    let formula_candidate_count = formula_candidates.len();
     let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
+    let formula_blocks =
+        formula_candidates_to_blocks(raw_page.page_num, formula_candidates, formula_mode);
 
     let figure_candidates = if ctx.extract_snapshot_figures {
         detect_figure_candidates(
@@ -190,16 +217,61 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         Vec::new()
     };
 
-    Ok(Page {
-        page_num: raw_page.page_num,
-        width: raw_page.width,
-        height: raw_page.height,
-        blocks: merge_text_and_images(
-            merge_text_and_tables(text_classified, table_blocks),
-            merge_media_blocks(image_blocks, figure_blocks),
-        ),
-        override_markdown: None,
+    Ok(BuiltPage {
+        page: Page {
+            page_num: raw_page.page_num,
+            width: raw_page.width,
+            height: raw_page.height,
+            blocks: merge_text_and_images(
+                merge_text_and_formulas(
+                    merge_text_and_tables(text_classified, table_blocks),
+                    formula_blocks,
+                ),
+                merge_media_blocks(image_blocks, figure_blocks),
+            ),
+            override_markdown: None,
+        },
+        formula_candidate_count,
     })
+}
+
+fn merge_text_and_formulas(mut text: Vec<Block>, mut formulas: Vec<Block>) -> Vec<Block> {
+    if formulas.is_empty() {
+        return text;
+    }
+    text.sort_by_key(|block| block.reading_order);
+    formulas.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .partial_cmp(&b.bbox.y0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(Ordering::Equal))
+    });
+
+    let mut result = Vec::with_capacity(text.len() + formulas.len());
+    let mut formula_iter = formulas.into_iter().peekable();
+    let mut order = 0usize;
+    for mut block in text {
+        while let Some(formula) = formula_iter.peek() {
+            if formula.bbox.y0 < block.bbox.y0 {
+                let mut formula = formula_iter.next().expect("peek succeeded");
+                formula.reading_order = order;
+                order += 1;
+                result.push(formula);
+            } else {
+                break;
+            }
+        }
+        block.reading_order = order;
+        order += 1;
+        result.push(block);
+    }
+    for mut formula in formula_iter {
+        formula.reading_order = order;
+        order += 1;
+        result.push(formula);
+    }
+    result
 }
 
 fn merge_text_and_tables(mut text: Vec<Block>, mut tables: Vec<Block>) -> Vec<Block> {
@@ -256,6 +328,40 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
             font_name: "table".to_string(),
             page_num,
             reading_order: 0,
+        })
+        .collect()
+}
+
+fn formula_candidates_to_blocks(
+    page_num: usize,
+    candidates: Vec<FormulaCandidate>,
+    mode: cli::FormulaMode,
+) -> Vec<Block> {
+    if !matches!(mode, cli::FormulaMode::Local | cli::FormulaMode::Hybrid) {
+        return Vec::new();
+    }
+
+    candidates
+        .into_iter()
+        .enumerate()
+        .map(|(idx, candidate)| {
+            let latex = candidate
+                .latex
+                .clone()
+                .unwrap_or_else(|| candidate.source_text.clone());
+            Block {
+                id: 3_000_000 + idx,
+                bbox: candidate.bbox,
+                text: candidate.source_text,
+                kind: BlockKind::Formula {
+                    latex,
+                    display: true,
+                },
+                font_size: 0.0,
+                font_name: "formula-candidate".to_string(),
+                page_num,
+                reading_order: 0,
+            }
         })
         .collect()
 }
@@ -318,6 +424,70 @@ fn write_figure_debug(
     let json = serde_json::to_string_pretty(candidates)?;
     std::fs::write(&path, json)
         .with_context(|| format!("Failed to write figure debug {}", path.display()))
+}
+
+fn write_formula_debug(
+    pdf_path: &Path,
+    output_dir: &Path,
+    page_num: usize,
+    candidates: &mut [FormulaCandidate],
+    dpi: u32,
+) -> anyhow::Result<()> {
+    let debug_dir = output_dir.join("debug").join("formulas");
+    std::fs::create_dir_all(&debug_dir)
+        .with_context(|| format!("Failed to create formula debug dir {}", debug_dir.display()))?;
+
+    if !candidates.is_empty() {
+        let document = mupdf::Document::open(pdf_path).with_context(|| {
+            format!(
+                "Failed to open {} for formula rendering",
+                pdf_path.display()
+            )
+        })?;
+        let page = document.load_page(page_num as i32).with_context(|| {
+            format!("Failed to load page {} for formula rendering", page_num + 1)
+        })?;
+
+        for candidate in candidates.iter_mut() {
+            let filename = format!(
+                "page{}_formula{}.png",
+                page_num + 1,
+                candidate.formula_index + 1
+            );
+            let abs_path = debug_dir.join(&filename);
+            if let Some(bytes) = crate::figure::render::render_bbox_png(&page, candidate.bbox, dpi)
+                .with_context(|| format!("Failed to render formula crop {filename}"))?
+            {
+                std::fs::write(&abs_path, bytes).with_context(|| {
+                    format!("Failed to write formula crop {}", abs_path.display())
+                })?;
+                candidate.crop_path = Some(format!("debug/formulas/{filename}"));
+            }
+        }
+    }
+
+    let path = debug_dir.join(format!("page{}.json", page_num + 1));
+    let json = serde_json::to_string_pretty(candidates)?;
+    std::fs::write(&path, json)
+        .with_context(|| format!("Failed to write formula debug {}", path.display()))
+}
+
+fn warn_on_formula_candidate_summary(
+    args: &ConvertArgs,
+    page_count: usize,
+    candidate_count: usize,
+) {
+    if candidate_count == 0 || args.options.hybrid.is_on() {
+        return;
+    }
+    if matches!(
+        args.options.effective_formula_mode(),
+        FormulaMode::Auto | FormulaMode::Hybrid
+    ) {
+        eprintln!(
+            "  warning: detected {candidate_count} formula candidate(s) across {page_count} page(s); use `--debug-formulas` to inspect crops or `--hybrid docling --formulas hybrid` for formula enrichment.",
+        );
+    }
 }
 
 fn warn_on_scan_like_pages(

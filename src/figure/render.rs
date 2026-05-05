@@ -64,7 +64,11 @@ pub fn render_figure_snapshots(
     Ok(rendered)
 }
 
-fn render_bbox_png(page: &mupdf::Page, bbox: Bbox, dpi: u32) -> anyhow::Result<Option<Vec<u8>>> {
+pub(crate) fn render_bbox_png(
+    page: &mupdf::Page,
+    bbox: Bbox,
+    dpi: u32,
+) -> anyhow::Result<Option<Vec<u8>>> {
     let scale = (dpi.max(1) as f32) / 72.0;
     let width = ((bbox.width() * scale).ceil() as i32).max(1);
     let height = ((bbox.height() * scale).ceil() as i32).max(1);

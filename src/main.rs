@@ -5,6 +5,7 @@ mod document;
 mod error;
 mod figure;
 mod formats;
+mod formula;
 mod hybrid;
 mod layout;
 mod ocr;
