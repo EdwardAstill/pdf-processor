@@ -25,7 +25,12 @@ jobs:
             libfontconfig1-dev \
             libfreetype6-dev \
             clang \
-            libclang-dev
+            libclang-dev \
+            ocrmypdf \
+            tesseract-ocr \
+            tesseract-ocr-eng \
+            qpdf \
+            ghostscript
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
@@ -33,17 +38,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - name: Build release binary
-        run: cargo build --release --bin "${BIN_NAME}"
-
       - name: Stage artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          cp "target/release/${BIN_NAME}" "dist/${BIN_NAME}"
-          strip "dist/${BIN_NAME}" || true
-          tar -C dist -czvf "dist/${CRATE_NAME}-x86_64-linux.tar.gz" "${BIN_NAME}"
-          ls -la dist/
+        run: scripts/package-linux-release.sh
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
@@ -51,3 +47,4 @@ jobs:
           files: |
             dist/${{ env.CRATE_NAME }}-x86_64-linux.tar.gz
             dist/${{ env.BIN_NAME }}
+            dist/install.sh

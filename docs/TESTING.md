@@ -8,13 +8,15 @@ Active scope note: the main `pdfp` binary is now a local PDF processor. Markdown
 
 | Layer | Command | Count | Runtime |
 | --- | --- | ---: | ---: |
-| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin pdfp` | 100 | ~0.05 s |
+| Unit tests (inline `#[cfg(test)]`) | `cargo test --bin pdfp` | broad inline suite | ~0.05 s |
 | CLI help smoke tests | `cargo test --test cli_help` | one pass over every command path | ~0.05 s |
 | Processor command units | `cargo test processor::` | focused parser/order tests | ~0.05 s |
 | Golden smoke/regression fixtures | `cargo test --test golden` | 4 (skip when fixtures are absent) | ~0.05 s+ |
 | Golden corpus sweep | `cargo test --test golden -- --ignored golden_corpus_sweep` | 1 (iterates 13 PDFs) | ~16 s |
 | Golden snapshot diff (attention page 1) | `cargo test --test golden -- --ignored golden_snapshot_attention_page_1` | 1 | ~3 s |
 | PDF quality report | `bash scripts/quality-report.sh` | corpus summary + JSON report | corpus-dependent |
+| Local OCR sidecar | `cargo test --test ocr` | OCR decisions, standalone OCR command, missing-tool behavior, fake-cache hit | ~0.5 s+ |
+| Figure snapshots | `cargo test --test figure_snapshots` | `--figures snapshot`, `--figures none`, `--no-images` precedence, PNG output | ~1 s |
 | Hybrid — `httpmock` | `cargo test --test hybrid` | 4 (skip when fixtures are absent) | ~0.5 s+ |
 | Hybrid — live docling-serve (see below) | `DOCLING_URL=… cargo test --test hybrid -- --ignored hybrid_live` | 1 | variable |
 
@@ -32,11 +34,22 @@ cargo test --test golden -- --ignored
 bash scripts/quality-report.sh
 # → writes /tmp/pdfp-quality/report.json; exits 0 with SKIP if test-corpus/ is absent
 
+PDFP_QUALITY_CORPUS=example/pdf PDFP_QUALITY_RECURSIVE=0 PDFP_QUALITY_OUT=target/quality-top \
+  bash scripts/quality-report.sh
+# → writes a top-level-only report over the 22 checked-in example PDFs
+
+PDFP_QUALITY_CORPUS=example/pdf PDFP_QUALITY_RECURSIVE=1 PDFP_QUALITY_OUT=target/quality-recursive \
+  bash scripts/quality-report.sh
+# → writes a recursive report over all 44 checked-in example PDFs
+
 cargo clippy --all-targets -- -D warnings
 # → clean
 
 cargo check --features pdfium-metadata
 # → compiles
+
+cargo test --test ocr
+# → verifies OCR command construction, clean-PDF skip behavior, actionable missing-tool errors, inspect/search OCR provenance, and fake OCR cache hits
 ```
 
 ## Processor Command Smoke Tests
@@ -53,6 +66,19 @@ target/debug/pdfp inspect example/pdf/golden__lorem.pdf --json \
 
 target/debug/pdfp search example/pdf/attention.pdf Attention --json \
   | jq '(.matches | length) > 0'
+
+target/debug/pdfp inspect example/pdf/golden__lorem.pdf --ocr auto --json \
+  | jq '.ocr.status == "skipped" and .ocr.mode == "auto"'
+
+target/debug/pdfp search example/pdf/attention.pdf Attention --ocr auto --json \
+  | jq '(.matches | length) > 0'
+
+target/debug/pdfp ocr example/pdf/golden__lorem.pdf \
+  -o target/lorem.searchable.pdf --command definitely-missing-pdfp-ocr-command --json \
+  | jq '.status == "skipped" and .mode == "auto"'
+
+target/debug/pdfp doctor --json \
+  | jq '.ocr.available | type == "boolean"'
 
 target/debug/pdfp pages extract \
   example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-04_Presentation.pdf \
@@ -89,7 +115,7 @@ Expected checks:
 
 Current processor limitations:
 
-- `pdfp search` searches embedded PDF text only. Scanned pages need the planned OCR sidecar before matches appear.
+- `pdfp search` searches embedded PDF text unless `--ocr auto` or `--ocr force` is requested. Scanned pages also need OCRmyPDF, Tesseract, and the requested Tesseract language packs available locally.
 - `pages merge` and `pages reorder` preserve page contents but do not yet guarantee document-level metadata, outlines, forms, or annotations.
 - `impose` and `page resize` validate page count and geometry first; visual fidelity should still be checked by rendering sample outputs before release.
 
@@ -102,6 +128,8 @@ Current processor limitations:
 - **Metadata lookup** — 6 tests in `src/pdf/metadata.rs::tests` covering overlap scoring, bbox matching, and the stub loader.
 - **PDF extraction subscript/superscript logic** — 20+ tests in `src/pdf/extractor.rs::tests` exercising classify_char_script, group_into_text_rows, and real-world traces from AISC-360.
 - **Markdown renderer** — tests in `src/render/markdown.rs::tests` covering heading/paragraph/list/table emission, section splitting, scanned-page warnings, and the Phase 2b `override_markdown` path (implicitly via hybrid integration tests).
+- **Figure snapshots** — tests in `src/figure/` cover candidate grouping and tiny/decorative rejection; `tests/figure_snapshots.rs` runs the real CLI against `attention.pdf` and checks rendered `_fig` PNGs, `--figures none`, and `--no-images` precedence.
+- **Local OCR sidecar** — tests in `src/ocr/` and `tests/ocr.rs` cover OCRmyPDF argument construction, the standalone `pdfp ocr` command, triage that avoids clean born-digital PDFs, actionable missing-command failures for scan-heavy PDFs, JSON provenance for inspect/search, and cache-hit behavior using a fake OCR command.
 - **Hybrid triage/cache** — tests in `src/hybrid/triage.rs::tests` and `src/hybrid/mod.rs::tests` covering math-density threshold, table detection, low-density detection, running-footer exclusion, and cache hits that bypass backend/PDF extraction.
 - **Hybrid client parsing** — 5 unit tests on `ConvertResponse` deserialisation, all documented fallback keys (`md_content`, `content_md`, nested under `document`).
 - **Hybrid end-to-end** (via `httpmock` in `tests/hybrid.rs`) — three scenarios:
@@ -125,6 +153,29 @@ PDFP_QUALITY_OUT=/tmp/pdfp-quality \
 
 The report contains one entry per PDF with page count, warning count, extracted image count, empty page count, table marker count, and heading count.
 
+Quality report mode is controlled by `PDFP_QUALITY_RECURSIVE`:
+
+| Value | Corpus mode |
+| --- | --- |
+| `0`, `false`, `no` | Top-level PDFs only |
+| unset, `1`, any other value | Recursive PDF traversal |
+
+The JSON report includes:
+
+- top-level fields: `status`, `corpus`, `corpus_mode`, `case_count`, `cases`, `quality_warnings`, `summary`
+- per-case fields: `pdf`, `status`, `output`, `pages`, `warnings`, `extracted_images`, `images_per_page`, `empty_pages`, `table_markers`, `heading_count`, `heading_density`, `glued_numeric_rows`, `quality_warnings`
+- warning kinds: `high_heading_density`, `high_image_density`, `glued_numeric_rows`
+
+Compare a new quality run against a stored baseline with:
+
+```bash
+bash scripts/quality-diff.sh \
+  .warden/research/local-ocr-and-quality-plan/baseline/top-level-summary.json \
+  target/quality-top/report.json
+```
+
+Regenerate the stored baseline only after intentionally changing extraction behavior. Before regenerating, inspect the changed Markdown under the relevant `target/quality-*` case output directories.
+
 | File | Profile |
 | --- | --- |
 | `attention.pdf` | 2-col ML; inline math; figures |
@@ -143,9 +194,58 @@ Under ignored `test-corpus/golden/` (fixtures copied from OpenDataLoader's sampl
 | `lorem.pdf` | trivial prose — fast smoke |
 | `1901.03003.pdf` | arXiv layout reference |
 | `2408.02509v1.pdf` | arXiv layout reference |
-| `chinese_scan.pdf` | scanned Chinese document (local path produces near-empty; hybrid OCR path is the fix) |
+| `chinese_scan.pdf` | scanned Chinese document; use `--ocr auto` for local OCR or `--hybrid docling` for external assist |
 | `issue-336-conto-economico-bialetti.pdf` | real-world Italian invoice |
 | `pdfua-1-reference-suite-1-1/*.pdf` | 10 tagged PDF/UA-1 samples (for Phase 3 tagged-PDF verification) |
+
+## Local OCR Setup
+
+Local OCR is optional and not part of the default conversion/search path. It is enabled with:
+
+```bash
+pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache -o target/scan-md
+pdfp ocr scan.pdf -o target/scan.searchable.pdf --mode auto --lang eng --cache-dir target/ocr-cache
+pdfp inspect scan.pdf --ocr auto --json
+pdfp search scan.pdf "needle" --ocr auto --json
+```
+
+`--ocr auto` first runs scan triage. Born-digital PDFs with readable text skip OCR, so missing OCR tools do not make clean PDFs fail. Scan-heavy PDFs fail with an actionable message if OCR is requested but the OCRmyPDF command is unavailable.
+
+Runtime OCR discovery order:
+
+1. explicit `--command <PATH>` / `--ocr-command <PATH>`
+2. `PDFP_OCR_COMMAND`
+3. bundled `tools/ocr/ocrmypdf` next to the installed `pdfp`
+4. `ocrmypdf` from `PATH`
+
+Install OCR dependencies before running live OCR checks:
+
+```bash
+# Arch
+sudo pacman -S ocrmypdf tesseract tesseract-data-eng
+
+# Debian / Ubuntu
+sudo apt install ocrmypdf tesseract-ocr tesseract-ocr-eng
+
+# macOS
+brew install ocrmypdf tesseract tesseract-lang
+```
+
+Live OCR acceptance checks:
+
+```bash
+command -v ocrmypdf
+command -v tesseract
+
+target/debug/pdfp convert example/pdf/golden__chinese_scan.pdf \
+  --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache \
+  -o target/ocr-scan --verbose
+
+target/debug/pdfp search example/pdf/golden__chinese_scan.pdf \
+  "text" --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache --json
+```
+
+If the scan output is still only an image reference, verify that the correct Tesseract language pack is installed and try a language matching the document, for example `--ocr-lang chi_sim` for simplified Chinese scans.
 
 ## Unverified paths
 
@@ -244,7 +344,7 @@ Things to look for:
 
 - Two-column papers: title → authors → abstract → body in correct order, not interleaved by column.
 - Math-heavy pages: if routed to Docling, display equations should appear as `$$ ... $$`. If not routed, Unicode math characters should still be present (or the page should have silently dropped any glyph without a ToUnicode map, which is the documented local-path limit — see `docs/pdf-internals.md` § "Fonts, encodings, and why text sometimes vanishes").
-- Figures: each page with a raster figure in the source PDF should produce `![image](images/pageN_imgM.png)` with a real PNG file on disk.
+- Figures: default `--figures embedded` should produce `![image](images/pageN_imgM.png)` for real embedded raster figures. `--figures snapshot` should instead produce rendered page-region assets such as `![image](images/pageN_figM.png)` when a figure candidate is detected. Snapshot mode is heuristic; inspect `--debug-figures` JSON before treating a miss as a renderer failure.
 - Tables: GFM pipe tables. Missing cells are OK (the classifier's grid detector is best-effort); garbage text in cells is not OK.
 - Page markers: `<!-- page:N -->` separators present, hidden on rendered display.
 

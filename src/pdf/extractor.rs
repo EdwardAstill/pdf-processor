@@ -4,7 +4,7 @@ use std::path::Path;
 use mupdf::text_page::TextBlockType;
 use mupdf::{Document, ImageFormat, MetadataName, TextPageFlags};
 
-use crate::document::types::{Bbox, DocumentMetadata, ImageRef, RawPage, RawTextBlock};
+use crate::document::types::{Bbox, DocumentMetadata, ImageRef, RawPage, RawTextBlock, RawWord};
 use crate::error::{VtvError, VtvResult};
 
 #[path = "text_cleanup.rs"]
@@ -144,6 +144,7 @@ impl PdfExtractor {
             })?;
 
         let mut blocks: Vec<RawTextBlock> = Vec::new();
+        let mut words: Vec<RawWord> = Vec::new();
         let mut image_refs: Vec<ImageRef> = Vec::new();
         let mut image_index: usize = 0;
 
@@ -167,6 +168,7 @@ impl PdfExtractor {
                         block_id,
                         reading_order: 0,
                     });
+                    words.extend(Self::collect_block_words(&block, page_num, block_id));
                 }
                 TextBlockType::Image => {
                     let bbox = Self::mupdf_rect_to_bbox(block.bounds());
@@ -201,6 +203,7 @@ impl PdfExtractor {
             width: bounds.x1 - bounds.x0,
             height: bounds.y1 - bounds.y0,
             blocks,
+            words,
             image_refs,
         })
     }
@@ -234,6 +237,7 @@ impl PdfExtractor {
                     size: ch.size(),
                     origin_x: origin.x,
                     origin_y: origin.y,
+                    bbox: None,
                 });
             }
         }
@@ -312,6 +316,7 @@ impl PdfExtractor {
                         size: ch.size(),
                         origin_x: origin.x,
                         origin_y: origin.y,
+                        bbox: None,
                     }
                 })
                 .filter(|c| c.ch.is_some())
@@ -372,6 +377,121 @@ impl PdfExtractor {
         // surfaced by the wrapper. Return "unknown" as specified fallback.
         "unknown".to_owned()
     }
+
+    fn collect_block_words(
+        block: &mupdf::TextBlock<'_>,
+        page_num: usize,
+        block_id: usize,
+    ) -> Vec<RawWord> {
+        let mut words = Vec::new();
+
+        for (line_id, line) in block.lines().enumerate() {
+            let mut chars: Vec<CharInfo> = line
+                .chars()
+                .filter_map(|ch| {
+                    let character = ch.char()?;
+                    let origin = ch.origin();
+                    Some(CharInfo {
+                        ch: Some(character),
+                        size: ch.size(),
+                        origin_x: origin.x,
+                        origin_y: origin.y,
+                        bbox: Some(quad_to_bbox(&ch.quad())),
+                    })
+                })
+                .collect();
+
+            chars.sort_by(|left, right| {
+                left.origin_x
+                    .partial_cmp(&right.origin_x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let mut current = WordBuilder::default();
+            let mut prev: Option<&CharInfo> = None;
+
+            for ch in &chars {
+                let Some(character) = ch.ch else {
+                    continue;
+                };
+                let gap = prev
+                    .and_then(|prev| prev.bbox.zip(ch.bbox).map(|(a, b)| b.x0 - a.x1))
+                    .unwrap_or(0.0);
+                let gap_threshold = ch.size.max(prev.map(|p| p.size).unwrap_or(ch.size)) * 0.55;
+
+                if character.is_whitespace() || (!current.text.is_empty() && gap > gap_threshold) {
+                    if let Some(word) = current.finish(page_num, block_id, line_id) {
+                        words.push(word);
+                    }
+                    current = WordBuilder::default();
+                    if character.is_whitespace() {
+                        prev = Some(ch);
+                        continue;
+                    }
+                }
+
+                current.push(character, ch);
+                prev = Some(ch);
+            }
+
+            if let Some(word) = current.finish(page_num, block_id, line_id) {
+                words.push(word);
+            }
+        }
+
+        words
+    }
+}
+
+#[derive(Default)]
+struct WordBuilder {
+    text: String,
+    bbox: Option<Bbox>,
+    baseline_sum: f32,
+    font_size_sum: f32,
+    count: usize,
+}
+
+impl WordBuilder {
+    fn push(&mut self, ch: char, info: &CharInfo) {
+        self.text.push(ch);
+        if let Some(bbox) = info.bbox {
+            self.bbox = Some(match self.bbox {
+                Some(existing) => existing.union(&bbox),
+                None => bbox,
+            });
+        }
+        self.baseline_sum += info.origin_y;
+        self.font_size_sum += info.size;
+        self.count += 1;
+    }
+
+    fn finish(self, page_num: usize, block_id: usize, line_id: usize) -> Option<RawWord> {
+        let text = self.text.trim();
+        if text.is_empty() || self.count == 0 {
+            return None;
+        }
+        Some(RawWord {
+            bbox: self.bbox?,
+            text: text.to_string(),
+            font_size: self.font_size_sum / self.count as f32,
+            page_num,
+            block_id,
+            line_id,
+            baseline_y: self.baseline_sum / self.count as f32,
+        })
+    }
+}
+
+fn quad_to_bbox(quad: &mupdf::Quad) -> Bbox {
+    let xs = [quad.ul.x, quad.ur.x, quad.ll.x, quad.lr.x];
+    let ys = [quad.ul.y, quad.ur.y, quad.ll.y, quad.lr.y];
+    Bbox::new(
+        xs.iter().copied().fold(f32::INFINITY, f32::min),
+        ys.iter().copied().fold(f32::INFINITY, f32::min),
+        xs.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        ys.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+    )
 }
 
 /// Detect vertical/rotated text by counting how many unique y-baselines
@@ -503,6 +623,7 @@ struct CharInfo {
     size: f32,
     origin_x: f32,
     origin_y: f32,
+    bbox: Option<Bbox>,
 }
 
 /// Build a line string with `_{...}` / `^{...}` markers from CharInfo data.
@@ -766,12 +887,14 @@ mod tests {
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 100.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('i'),
                 size: 10.0,
                 origin_x: 6.0,
                 origin_y: 100.0,
+                bbox: None,
             },
         ];
         let rows = group_into_text_rows(&chars, 10.0);
@@ -787,12 +910,14 @@ mod tests {
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 100.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('B'),
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 120.0,
+                bbox: None,
             },
         ];
         let rows = group_into_text_rows(&chars, 10.0);
@@ -810,18 +935,21 @@ mod tests {
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 100.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('n'),
                 size: 7.0,
                 origin_x: 6.0,
                 origin_y: 102.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('Q'),
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 120.0,
+                bbox: None,
             },
         ];
         let rows = group_into_text_rows(&chars, 10.0);
@@ -843,12 +971,14 @@ mod tests {
                 size: 10.0,
                 origin_x: 20.0,
                 origin_y: 100.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('A'),
                 size: 10.0,
                 origin_x: 0.0,
                 origin_y: 100.0,
+                bbox: None,
             },
         ];
         let rows = group_into_text_rows(&chars, 10.0);
@@ -866,24 +996,28 @@ mod tests {
                 size: 9.5,
                 origin_x: 205.0,
                 origin_y: 372.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('c'),
                 size: 7.0,
                 origin_x: 211.0,
                 origin_y: 374.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('P'),
                 size: 9.5,
                 origin_x: 215.0,
                 origin_y: 372.0,
+                bbox: None,
             },
             CharInfo {
                 ch: Some('n'),
                 size: 7.0,
                 origin_x: 221.0,
                 origin_y: 374.0,
+                bbox: None,
             },
         ];
         let result = build_line_with_scripts_from_info(&chars, 9.5, 372.0);

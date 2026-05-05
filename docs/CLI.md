@@ -7,6 +7,8 @@ Use `pdfp --help` to see the command tree, and use `--help` on any command or su
 ```sh
 pdfp --help
 pdfp convert --help
+pdfp ocr --help
+pdfp doctor --help
 pdfp inspect --help
 pdfp search --help
 pdfp pages --help
@@ -17,19 +19,20 @@ pdfp page resize --help
 
 ## Install
 
-Install the prebuilt Linux binary from the latest GitHub release:
+Install the latest Linux release with one command:
 
 ```sh
-mkdir -p ~/.local/bin
-gh release download --repo EdwardAstill/pdf-processor --pattern pdfp --output ~/.local/bin/pdfp --clobber
-chmod +x ~/.local/bin/pdfp
+curl -fsSL https://github.com/EdwardAstill/pdf-processor/releases/latest/download/install.sh | sh
 ```
+
+The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies through the platform package manager when they are missing. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
 
 Confirm the binary is available:
 
 ```sh
 pdfp --version
 pdfp --help
+pdfp doctor
 ```
 
 ## Mental Model
@@ -39,8 +42,10 @@ pdfp --help
 | Workflow | Command | Output |
 | --- | --- | --- |
 | Convert PDF to Markdown | `pdfp convert input.pdf` | Markdown folder |
-| Inspect PDF pages | `pdfp inspect input.pdf` | Human summary or JSON |
-| Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON |
+| Create a searchable OCR PDF | `pdfp ocr input.pdf -o output.pdf` | New searchable PDF |
+| Check runtime dependencies | `pdfp doctor` | Human summary or JSON |
+| Inspect PDF pages | `pdfp inspect input.pdf` | Human summary or JSON, optionally OCR-assisted |
+| Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON, optionally OCR-assisted |
 | Extract/delete/split/reorder/merge pages | `pdfp pages ...` | New PDF files |
 | Create 2-up or booklet layouts | `pdfp impose ...` | New PDF files |
 | Resize pages | `pdfp page resize ...` | New PDF file |
@@ -83,6 +88,17 @@ Useful conversion flags:
 | --- | --- |
 | `-o`, `--output <DIR>` | Output directory |
 | `--no-images` | Skip extracted image files |
+| `--figures embedded|snapshot|both|none` | Choose embedded image objects, rendered figure snapshots, both, or no image output |
+| `--figure-dpi <N>` | Snapshot render resolution, default `200` |
+| `--figure-padding <PTS>` | Padding around detected figure regions, default `8.0` |
+| `--debug-figures` | Write figure candidate JSON under `debug/figures/` |
+| `--tables auto|native|layout|off` | Choose coordinate table handling |
+| `--debug-tables` | Write table candidate JSON under `debug/tables/` |
+| `--ocr off|auto|force` | Run optional local OCR preprocessing |
+| `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
+| `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
+| `--ocr-timeout-secs <N>` | OCR command timeout |
+| `--ocr-command <PATH>` | OCRmyPDF command path, defaults to `ocrmypdf` |
 | `--min-h-gap <PTS>` | Tune horizontal layout cuts |
 | `--min-v-gap <PTS>` | Tune vertical layout cuts |
 | `--hybrid docling` | Use a running Docling backend for harder pages |
@@ -98,6 +114,110 @@ paper/
   images/
     page1_img1.png
 ```
+
+Figure modes:
+
+```sh
+# Current default: extract raster image objects embedded in the PDF.
+pdfp convert paper.pdf -o out/ --figures embedded
+
+# Render the complete detected visual figure region from the page.
+pdfp convert paper.pdf -o out/ --figures snapshot --figure-dpi 200
+
+# Debug mode: keep both asset styles and write candidate metadata.
+pdfp convert paper.pdf -o out/ --figures both --debug-figures
+
+# Text-only markdown output.
+pdfp convert paper.pdf -o out/ --figures none
+```
+
+`embedded` mode is fast and preserves the current `images/pageN_imgM.png` behavior, but it only sees raster image objects. `snapshot` mode renders detected page regions to `images/pageN_figM.png`, so it can include vector graphics, labels, legends, axes, and multi-panel figures that are not stored as one embedded image. Snapshot detection is heuristic; use `--debug-figures` when tuning false positives or missed figures. Higher `--figure-dpi` values produce sharper images but increase runtime and output size.
+
+Table modes:
+
+```sh
+# Default: native Markdown tables when confident, fixed-width fallback otherwise.
+pdfp convert catalogue.pdf -o out/ --tables auto
+
+# Force coordinate-derived Markdown tables.
+pdfp convert catalogue.pdf -o out/ --tables native
+
+# Preserve detected table regions as fenced fixed-width text.
+pdfp convert catalogue.pdf -o out/ --tables layout
+
+# Disable coordinate table reconstruction.
+pdfp convert catalogue.pdf -o out/ --tables off
+```
+
+`pdfp` reconstructs born-digital tables from MuPDF word coordinates. This works best when the PDF already has a usable text layer, such as product catalogues with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes detected table bboxes, rows, confidence, and render mode under `debug/tables/`.
+
+OCR is a separate concern. If the page is a scan with no usable text layer, use `--ocr auto` or `--ocr force` before expecting table reconstruction to work.
+
+## Local OCR
+
+OCR is opt-in. It never edits the input PDF in place. When OCR is needed, `pdfp` writes a searchable derivative PDF to a temporary or cache directory, then runs the normal conversion, inspection, or search path against that derivative while keeping output names based on the original file.
+
+Use automatic OCR only when scan triage says it is needed:
+
+```sh
+pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir .pdfp-ocr -o out/
+```
+
+Force OCR when the embedded text layer exists but is damaged:
+
+```sh
+pdfp convert bad-text-layer.pdf --ocr force --ocr-lang eng+deu -o out/
+```
+
+Inspect the OCR decision:
+
+```sh
+pdfp inspect scan.pdf --ocr auto --json
+```
+
+Search a scan through the OCR sidecar:
+
+```sh
+pdfp search scan.pdf "needle" --ocr auto --json
+```
+
+Local OCR calls OCRmyPDF, so the machine also needs Tesseract and any requested language packs. If `--ocr auto` is used on a clean born-digital PDF, OCR is skipped and missing OCR tools do not matter. If a scan-heavy PDF needs OCR and the command is missing, `pdfp` exits with a message naming the missing OCRmyPDF command.
+
+`pdfp` resolves OCRmyPDF in this order:
+
+1. `--command <PATH>` / `--ocr-command <PATH>`
+2. `PDFP_OCR_COMMAND`
+3. `tools/ocr/ocrmypdf` bundled next to the installed `pdfp`
+4. `ocrmypdf` from `PATH`
+
+Check the runtime setup:
+
+```sh
+pdfp doctor
+pdfp doctor --json
+```
+
+### Standalone OCR PDF
+
+Use `pdfp ocr` when the desired output is a searchable PDF rather than Markdown:
+
+```sh
+pdfp ocr scan.pdf -o scan.searchable.pdf --mode auto --lang eng
+```
+
+Useful standalone OCR flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output <PDF>` | Output searchable PDF |
+| `--mode auto|force` | Skip readable PDFs/pages or force raster OCR |
+| `--lang <LANGS>` | OCR languages, such as `eng`, `eng+deu`, or `chi_sim` |
+| `--cache-dir <DIR>` | Reuse OCRmyPDF sidecar results before copying to output |
+| `--timeout-secs <N>` | OCR timeout |
+| `--command <PATH>` | OCRmyPDF command path |
+| `--json` | Emit OCR decision/provenance JSON |
+
+`--mode auto` first checks whether the PDF already has readable text. If OCR is not needed, `pdfp` copies the input to the output path and reports `status: skipped` in JSON. `--mode force` sends every page through OCRmyPDF and is the right option only when the embedded text layer is damaged.
 
 ## Inspect PDFs
 
@@ -140,7 +260,7 @@ Return JSON:
 pdfp search input.pdf "Fourier" --json
 ```
 
-Search only sees text embedded in the PDF. Image-only scans need OCR first; the OCR sidecar is planned separately.
+By default, search only sees text embedded in the PDF. Add `--ocr auto` to let scan-heavy PDFs be converted to a searchable derivative first, or `--ocr force` when an existing text layer is unusable.
 
 ## Page Operations
 
@@ -217,7 +337,8 @@ Supported resize options:
 ## Safety and Limits
 
 - `pdfp` is local-first. Normal conversion, search, inspection, and page operations do not require a network service.
+- `--ocr auto` and `--ocr force` require OCRmyPDF plus Tesseract only when OCR is actually run.
 - `--hybrid docling` requires a separate Docling server.
 - Page editing commands write new PDFs and refuse to use the input path as the output path.
-- Search currently uses embedded PDF text only.
+- Search uses embedded PDF text unless local OCR is explicitly requested.
 - Merge/reorder/imposition preserve page contents conservatively, but document-level metadata, outlines, forms, and annotations are not yet guaranteed.

@@ -5,14 +5,19 @@ use std::time::Duration;
 use anyhow::Context;
 
 use crate::batch;
-use crate::cli::{self, ConvertArgs};
+use crate::cli::{self, ConvertArgs, FigureMode};
 use crate::document::types::{Block, BlockKind, Document, ImageRef, Page, RawPage};
+use crate::figure::{
+    detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
+};
 use crate::formats;
 use crate::hybrid;
 use crate::layout::{
     classifier::Classifier,
+    table::{detect_coordinate_tables, TableCandidate},
     xycut::{assign_reading_order, build_xycut_order, XyCutConfig},
 };
+use crate::ocr;
 use crate::pdf::{self, extractor::PdfExtractor};
 use crate::render::markdown::MarkdownRenderer;
 
@@ -27,7 +32,21 @@ pub fn process_pdf(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let mut doc = build_document(pdf_path, args, &xycut_config)?;
+    let (raw_pages, metadata) = PdfExtractor::extract(pdf_path)
+        .with_context(|| format!("Failed to extract {}", pdf_path.display()))?;
+    let ocr_report = ocr::triage::triage_raw_pages(&raw_pages);
+    let prepared = ocr::prepare_pdf_with_report(
+        pdf_path,
+        &args.options.ocr,
+        &ocr_report,
+        args.options.verbose,
+    )?;
+
+    let mut doc = if prepared.effective_path == pdf_path {
+        build_document_from_raw(pdf_path, pdf_path, raw_pages, metadata, args, &xycut_config)?
+    } else {
+        build_document(&prepared.effective_path, pdf_path, args, &xycut_config)?
+    };
     let scan_report = hybrid::triage::scan_report(&doc.pages);
 
     warn_on_scan_like_pages(pdf_path, args, &doc.pages, &scan_report);
@@ -37,29 +56,58 @@ pub fn process_pdf(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
 
 fn build_document(
     pdf_path: &Path,
+    output_base_path: &Path,
     args: &ConvertArgs,
     xycut_config: &XyCutConfig,
 ) -> anyhow::Result<Document> {
     let (raw_pages, metadata) = PdfExtractor::extract(pdf_path)
         .with_context(|| format!("Failed to extract {}", pdf_path.display()))?;
+    build_document_from_raw(
+        pdf_path,
+        output_base_path,
+        raw_pages,
+        metadata,
+        args,
+        xycut_config,
+    )
+}
 
+fn build_document_from_raw(
+    pdf_path: &Path,
+    output_base_path: &Path,
+    raw_pages: Vec<RawPage>,
+    metadata: crate::document::types::DocumentMetadata,
+    args: &ConvertArgs,
+    xycut_config: &XyCutConfig,
+) -> anyhow::Result<Document> {
     let classifier = Classifier::new_for_document(&raw_pages);
-    let output_dir = batch::output_dir_for(pdf_path, args.options.output.as_deref());
+    let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
-    let extract_images = !args.options.no_images;
+    let extract_embedded_images = !args.options.no_images
+        && matches!(
+            args.options.figures,
+            FigureMode::Embedded | FigureMode::Both
+        );
+    let extract_snapshot_figures = !args.options.no_images
+        && matches!(
+            args.options.figures,
+            FigureMode::Snapshot | FigureMode::Both
+        );
+
+    let page_build_context = PageBuildContext {
+        pdf_path,
+        classifier: &classifier,
+        xycut_config,
+        extract_embedded_images,
+        extract_snapshot_figures,
+        images_dir: &images_dir,
+        output_dir: &output_dir,
+        args,
+    };
 
     let pages = raw_pages
         .into_iter()
-        .map(|raw_page| {
-            build_page(
-                raw_page,
-                pdf_path,
-                &classifier,
-                xycut_config,
-                extract_images,
-                &images_dir,
-            )
-        })
+        .map(|raw_page| build_page(raw_page, &page_build_context))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(Document {
@@ -69,16 +117,20 @@ fn build_document(
     })
 }
 
-fn build_page(
-    raw_page: RawPage,
-    pdf_path: &Path,
-    classifier: &Classifier,
-    xycut_config: &XyCutConfig,
-    extract_images: bool,
-    images_dir: &Path,
-) -> anyhow::Result<Page> {
-    let mut text_blocks = raw_page.blocks;
-    let order = build_xycut_order(&text_blocks, xycut_config);
+struct PageBuildContext<'a> {
+    pdf_path: &'a Path,
+    classifier: &'a Classifier,
+    xycut_config: &'a XyCutConfig,
+    extract_embedded_images: bool,
+    extract_snapshot_figures: bool,
+    images_dir: &'a Path,
+    output_dir: &'a Path,
+    args: &'a ConvertArgs,
+}
+
+fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Result<Page> {
+    let mut text_blocks = std::mem::take(&mut raw_page.blocks);
+    let order = build_xycut_order(&text_blocks, ctx.xycut_config);
     assign_reading_order(&order, &mut text_blocks);
 
     let page_shell = RawPage {
@@ -86,14 +138,54 @@ fn build_page(
         width: raw_page.width,
         height: raw_page.height,
         blocks: Vec::new(),
+        words: Vec::new(),
         image_refs: Vec::new(),
     };
-    let metadata = pdf::metadata::load_page_metadata(pdf_path, raw_page.page_num);
+    let table_candidates =
+        detect_coordinate_tables(&raw_page.words, raw_page.width, ctx.args.options.tables);
+    if ctx.args.options.debug_tables && !matches!(ctx.args.options.tables, cli::TableMode::Off) {
+        write_table_debug(ctx.output_dir, raw_page.page_num, &table_candidates)?;
+    }
+    let metadata = pdf::metadata::load_page_metadata(ctx.pdf_path, raw_page.page_num);
     let text_classified =
-        classifier.classify_page_with_metadata(text_blocks, &page_shell, metadata.as_ref());
+        ctx.classifier
+            .classify_page_with_metadata(text_blocks, &page_shell, metadata.as_ref());
+    let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
+    let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
 
-    let image_blocks = if extract_images && !raw_page.image_refs.is_empty() {
-        save_page_images(&raw_page.image_refs, images_dir)?
+    let figure_candidates = if ctx.extract_snapshot_figures {
+        detect_figure_candidates(
+            &raw_page,
+            &text_classified,
+            FigureDetectionOptions {
+                padding: ctx.args.options.figure_padding,
+                ..Default::default()
+            },
+        )
+    } else {
+        Vec::new()
+    };
+
+    if ctx.args.options.debug_figures && ctx.extract_snapshot_figures {
+        write_figure_debug(ctx.output_dir, raw_page.page_num, &figure_candidates)?;
+    }
+
+    let image_blocks = if ctx.extract_embedded_images && !raw_page.image_refs.is_empty() {
+        save_page_images(&raw_page.image_refs, ctx.images_dir)?
+    } else {
+        Vec::new()
+    };
+    let figure_blocks = if ctx.extract_snapshot_figures && !figure_candidates.is_empty() {
+        render_figure_snapshots(
+            ctx.pdf_path,
+            raw_page.page_num,
+            &figure_candidates,
+            ctx.images_dir,
+            ctx.args.options.figure_dpi,
+        )?
+        .into_iter()
+        .map(|rendered| rendered.block)
+        .collect()
     } else {
         Vec::new()
     };
@@ -102,9 +194,130 @@ fn build_page(
         page_num: raw_page.page_num,
         width: raw_page.width,
         height: raw_page.height,
-        blocks: merge_text_and_images(text_classified, image_blocks),
+        blocks: merge_text_and_images(
+            merge_text_and_tables(text_classified, table_blocks),
+            merge_media_blocks(image_blocks, figure_blocks),
+        ),
         override_markdown: None,
     })
+}
+
+fn merge_text_and_tables(mut text: Vec<Block>, mut tables: Vec<Block>) -> Vec<Block> {
+    if tables.is_empty() {
+        return text;
+    }
+    text.sort_by_key(|block| block.reading_order);
+    tables.sort_by(|a, b| {
+        a.bbox
+            .y0
+            .partial_cmp(&b.bbox.y0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(Ordering::Equal))
+    });
+
+    let mut result = Vec::with_capacity(text.len() + tables.len());
+    let mut table_iter = tables.into_iter().peekable();
+    let mut order = 0usize;
+    for mut block in text {
+        while let Some(table) = table_iter.peek() {
+            if table.bbox.y0 < block.bbox.y0 {
+                let mut table = table_iter.next().expect("peek succeeded");
+                table.reading_order = order;
+                order += 1;
+                result.push(table);
+            } else {
+                break;
+            }
+        }
+        block.reading_order = order;
+        order += 1;
+        result.push(block);
+    }
+    for mut table in table_iter {
+        table.reading_order = order;
+        order += 1;
+        result.push(table);
+    }
+    result
+}
+
+fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) -> Vec<Block> {
+    candidates
+        .into_iter()
+        .enumerate()
+        .map(|(idx, candidate)| Block {
+            id: 2_000_000 + idx,
+            bbox: candidate.table.bbox,
+            text: String::new(),
+            kind: BlockKind::CoordinateTable {
+                table: candidate.table,
+            },
+            font_size: 0.0,
+            font_name: "table".to_string(),
+            page_num,
+            reading_order: 0,
+        })
+        .collect()
+}
+
+fn suppress_text_covered_by_tables(
+    blocks: Vec<Block>,
+    candidates: &[TableCandidate],
+) -> Vec<Block> {
+    if candidates.is_empty() {
+        return blocks;
+    }
+
+    blocks
+        .into_iter()
+        .filter(|block| {
+            !candidates.iter().any(|candidate| {
+                candidate.source_block_ids.contains(&block.id)
+                    || bbox_overlap_ratio(block.bbox, candidate.table.bbox) > 0.55
+            })
+        })
+        .collect()
+}
+
+fn bbox_overlap_ratio(a: crate::document::types::Bbox, b: crate::document::types::Bbox) -> f32 {
+    let x0 = a.x0.max(b.x0);
+    let y0 = a.y0.max(b.y0);
+    let x1 = a.x1.min(b.x1);
+    let y1 = a.y1.min(b.y1);
+    let intersection = ((x1 - x0).max(0.0)) * ((y1 - y0).max(0.0));
+    intersection / a.area().max(1.0)
+}
+
+fn write_table_debug(
+    output_dir: &Path,
+    page_num: usize,
+    candidates: &[TableCandidate],
+) -> anyhow::Result<()> {
+    let debug_dir = output_dir.join("debug").join("tables");
+    std::fs::create_dir_all(&debug_dir)
+        .with_context(|| format!("Failed to create table debug dir {}", debug_dir.display()))?;
+    let path = debug_dir.join(format!("page{}.json", page_num + 1));
+    let tables: Vec<_> = candidates
+        .iter()
+        .map(|candidate| &candidate.table)
+        .collect();
+    let json = serde_json::to_string_pretty(&tables)?;
+    std::fs::write(&path, json)
+        .with_context(|| format!("Failed to write table debug {}", path.display()))
+}
+
+fn write_figure_debug(
+    output_dir: &Path,
+    page_num: usize,
+    candidates: &[FigureCandidate],
+) -> anyhow::Result<()> {
+    let debug_dir = output_dir.join("debug").join("figures");
+    std::fs::create_dir_all(&debug_dir)
+        .with_context(|| format!("Failed to create figure debug dir {}", debug_dir.display()))?;
+    let path = debug_dir.join(format!("page{}.json", page_num + 1));
+    let json = serde_json::to_string_pretty(candidates)?;
+    std::fs::write(&path, json)
+        .with_context(|| format!("Failed to write figure debug {}", path.display()))
 }
 
 fn warn_on_scan_like_pages(
@@ -123,12 +336,18 @@ fn warn_on_scan_like_pages(
     }
 
     if !args.options.hybrid.is_on() && scan_report.likely_scan_like() {
+        let next_step = if matches!(args.options.ocr.ocr, cli::OcrMode::Off) {
+            "Try `--ocr auto` for local OCR, or `--hybrid docling` for external assist."
+        } else {
+            "Check `--ocr-lang`, or try `--hybrid docling` for external assist."
+        };
         eprintln!(
-            "  warning: {} looks scan-heavy ({} image-only / {} low-density page(s), {} page(s) with readable text); local output may be poor. Try `--hybrid docling`.",
+            "  warning: {} looks scan-heavy ({} image-only / {} low-density page(s), {} page(s) with readable text); local output may be poor. {}",
             pdf_path.display(),
             scan_report.image_only_pages,
             scan_report.low_density_pages,
-            scan_report.pages_with_readable_text
+            scan_report.pages_with_readable_text,
+            next_step
         );
     }
 }
@@ -216,6 +435,11 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
         });
     }
     Ok(blocks)
+}
+
+fn merge_media_blocks(mut left: Vec<Block>, right: Vec<Block>) -> Vec<Block> {
+    left.extend(right);
+    left
 }
 
 fn merge_text_and_images(mut text: Vec<Block>, mut images: Vec<Block>) -> Vec<Block> {

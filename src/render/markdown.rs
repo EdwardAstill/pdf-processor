@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::document::types::{Block, BlockKind, Document, ExtractedImage, Page, Section};
+use crate::document::types::{
+    Block, BlockKind, DetectedTable, Document, ExtractedImage, Page, Section, TableRender,
+};
 use crate::error::VtvResult;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -193,6 +195,11 @@ impl MarkdownRenderer {
                     md.push_str(&render_table(&table_blocks));
                     md.push('\n');
                     i = j;
+                }
+                BlockKind::CoordinateTable { table } => {
+                    md.push_str(&render_coordinate_table(table));
+                    md.push('\n');
+                    i += 1;
                 }
                 BlockKind::Caption => {
                     md.push('*');
@@ -603,6 +610,46 @@ fn render_table(blocks: &[&Block]) -> String {
     }
 
     render_table_grid(&grid, max_col + 1)
+}
+
+fn render_coordinate_table(table: &DetectedTable) -> String {
+    match &table.render {
+        TableRender::Markdown => render_detected_markdown_table(&table.rows),
+        TableRender::Layout { text } => {
+            let mut rendered = String::from("```text\n");
+            rendered.push_str(text.trim_end());
+            rendered.push_str("\n```\n");
+            rendered
+        }
+    }
+}
+
+fn render_detected_markdown_table(rows: &[Vec<String>]) -> String {
+    if rows.is_empty() {
+        return String::new();
+    }
+    let col_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if col_count == 0 {
+        return String::new();
+    }
+
+    let mut rendered = String::new();
+    for (row_idx, row) in rows.iter().enumerate() {
+        rendered.push('|');
+        for col in 0..col_count {
+            let cell = row.get(col).map(String::as_str).unwrap_or("");
+            rendered.push_str(&format!(" {} |", escape_table_cell(cell.trim())));
+        }
+        rendered.push('\n');
+        if row_idx == 0 {
+            rendered.push('|');
+            for _ in 0..col_count {
+                rendered.push_str(" --- |");
+            }
+            rendered.push('\n');
+        }
+    }
+    rendered
 }
 
 fn build_table_grid(
@@ -1319,6 +1366,7 @@ fn find_scholarly_title_candidate(blocks: &[&Block], page: &Page) -> Option<usiz
             || matches!(
                 block.kind,
                 BlockKind::TableCell { .. }
+                    | BlockKind::CoordinateTable { .. }
                     | BlockKind::Image { .. }
                     | BlockKind::Figure { .. }
                     | BlockKind::Formula { .. }
@@ -1608,6 +1656,10 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
             } else {
                 markdown.push_str(&format!("${}$\n\n", latex.trim()));
             }
+        }
+        BlockKind::CoordinateTable { table } if !force_plain_text => {
+            markdown.push_str(&render_coordinate_table(table));
+            markdown.push('\n');
         }
         BlockKind::ListItem { ordered, depth } => {
             let indent = "  ".repeat(*depth as usize);

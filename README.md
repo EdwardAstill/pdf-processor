@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/pdfp-logo.svg" alt="pdf-processor logo" width="220">
+</p>
+
 # pdf-processor
 
 `pdf-processor` is a local PDF processor. Its most mature workflow is converting PDFs into AI-friendly markdown, and the same binary now also has inspection, search, page editing, imposition, and resizing commands.
@@ -5,9 +9,9 @@
 The active codepath is:
 
 1. Open PDF with MuPDF.
-2. Extract text blocks and images.
+2. Extract text blocks, word positions, and images.
 3. Reconstruct reading order with XY-Cut++.
-4. Classify blocks into headings, lists, tables, captions, and paragraphs.
+4. Classify blocks into headings, lists, coordinate tables, captions, and paragraphs.
 5. Write markdown plus extracted images.
 
 ## Scope
@@ -20,6 +24,7 @@ Current top-level scope:
 - Inspect/search operations over embedded PDF text
 - Safe page operations that write new PDFs instead of editing inputs in place
 - Prototype page layout operations: 2-up, booklet, and page resize
+- Optional local OCR sidecar through OCRmyPDF for scan-heavy PDFs
 - Optional hybrid Docling assist for hard pages
 - Local-first processing
 
@@ -32,13 +37,13 @@ Out of active scope at the repo root:
 
 ## Install
 
-Install the prebuilt Linux binary from the latest GitHub release:
+Install the latest Linux release with one command:
 
 ```sh
-mkdir -p ~/.local/bin
-gh release download --repo EdwardAstill/pdf-processor --pattern pdfp --output ~/.local/bin/pdfp --clobber
-chmod +x ~/.local/bin/pdfp
+curl -fsSL https://github.com/EdwardAstill/pdf-processor/releases/latest/download/install.sh | sh
 ```
+
+The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies with the platform package manager when they are missing. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
 
 To build from source, install `clang`/`libclang` and run:
 
@@ -53,8 +58,10 @@ cargo build --release --bin pdfp
 ```sh
 pdfp <INPUT> [OPTIONS]
 pdfp convert <INPUT> [OPTIONS]
-pdfp inspect <INPUT> [--json]
-pdfp search <INPUT> <TEXT> [--json]
+pdfp ocr <INPUT> -o <OUTPUT> [--mode auto|force]
+pdfp doctor [--json]
+pdfp inspect <INPUT> [--json] [--ocr auto|force]
+pdfp search <INPUT> <TEXT> [--json] [--ocr auto|force]
 pdfp pages <extract|delete|split|reorder|merge> ...
 pdfp impose <2up|booklet> ...
 pdfp page resize <INPUT> -o <OUTPUT>
@@ -66,7 +73,9 @@ Every command and nested command has help:
 
 ```sh
 pdfp --help
+pdfp doctor --help
 pdfp convert --help
+pdfp ocr --help
 pdfp pages extract --help
 pdfp impose booklet --help
 pdfp page resize --help
@@ -90,6 +99,17 @@ Main convert options:
 | `--min-h-gap <pts>` | `8.0` | XY-Cut horizontal-cut tuning |
 | `--min-v-gap <pts>` | `12.0` | XY-Cut vertical-cut tuning |
 | `--no-images` | off | Skip image extraction |
+| `--figures <MODE>` | `embedded` | Image output mode: `embedded`, `snapshot`, `both`, or `none` |
+| `--figure-dpi <N>` | `200` | DPI for rendered figure snapshots |
+| `--figure-padding <pts>` | `8.0` | Padding around detected snapshot regions |
+| `--debug-figures` | off | Write figure candidate JSON under `debug/figures/` |
+| `--tables <MODE>` | `auto` | Table output mode: `auto`, `native`, `layout`, or `off` |
+| `--debug-tables` | off | Write table candidate JSON under `debug/tables/` |
+| `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
+| `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
+| `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
+| `--ocr-timeout-secs <N>` | `600` | OCR command timeout |
+| `--ocr-command <PATH>` | `ocrmypdf` | OCRmyPDF command path |
 | `--hybrid <MODE>` | `off` | `off` or `docling` |
 | `--hybrid-url <URL>` | `http://localhost:5001` | Hybrid backend base URL |
 | `--hybrid-timeout-secs <N>` | `600` | Hybrid timeout |
@@ -109,12 +129,63 @@ pdfp convert papers/ -o out/ --verbose
 # Quoted glob
 pdfp convert "papers/*.pdf" -o out/
 
+# Render complete visual figure regions instead of raw embedded image objects
+pdfp convert paper.pdf --figures snapshot --figure-dpi 200 -o out/
+
+# Keep both rendered figure snapshots and embedded image objects for inspection
+pdfp convert paper.pdf --figures both --debug-figures -o out/
+
+# Preserve hard catalogue tables as fixed-width layout blocks
+pdfp convert catalogue.pdf --tables layout -o out/
+
+# Force coordinate-derived Markdown tables where possible
+pdfp convert catalogue.pdf --tables native --debug-tables -o out/
+
 # Hybrid assist for harder pages
 pdfp convert math-paper.pdf --hybrid docling -o out/
 
 # Hybrid assist with cached OCR/table output
 pdfp convert scan.pdf --hybrid docling --hybrid-cache-dir .pdfp-cache -o out/
+
+# Local OCR sidecar for image-only or scan-heavy PDFs
+pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir .pdfp-ocr -o out/
+
+# Force OCR when the embedded text layer is broken
+pdfp convert bad-text-layer.pdf --ocr force --ocr-lang eng+deu -o out/
 ```
+
+Local OCR uses `ocrmypdf`, which in turn needs Tesseract and its language packs. OCR is not part of the default path. With `--ocr auto`, clean born-digital PDFs skip OCR even if OCRmyPDF is not installed; scan-heavy PDFs fail with an actionable missing-command message if OCR is requested but unavailable.
+
+`pdfp` resolves OCRmyPDF in this order:
+
+1. `--command <PATH>` / `--ocr-command <PATH>`
+2. `PDFP_OCR_COMMAND`
+3. `tools/ocr/ocrmypdf` bundled next to the installed `pdfp`
+4. `ocrmypdf` from `PATH`
+
+Check the runtime setup with:
+
+```sh
+pdfp doctor
+pdfp doctor --json
+```
+
+### OCR PDF
+
+Use `pdfp ocr` when you want a searchable PDF as its own artifact:
+
+```sh
+# Create a searchable PDF, skipping readable pages
+pdfp ocr scan.pdf -o scan.searchable.pdf --mode auto --lang eng
+
+# Force a fresh OCR layer when the existing text layer is damaged
+pdfp ocr bad-text-layer.pdf -o fixed.searchable.pdf --mode force --lang eng
+
+# Print machine-readable OCR provenance
+pdfp ocr scan.pdf -o scan.searchable.pdf --json
+```
+
+`--mode auto` is the safer default. It copies readable PDFs to the requested output without requiring OCRmyPDF. `--mode force` rasterizes all pages through OCRmyPDF, so it is slower and can flatten interactive PDF features.
 
 ### Inspect and Search
 
@@ -125,12 +196,18 @@ pdfp inspect paper.pdf
 # Machine-readable page metadata and scan-like signals
 pdfp inspect paper.pdf --json
 
+# Include the OCR decision/provenance in JSON
+pdfp inspect scan.pdf --ocr auto --json
+
 # Find embedded text and report matching pages
 pdfp search paper.pdf "Fourier"
 pdfp search paper.pdf "Fourier" --json
+
+# Search a scan after local OCR preprocessing
+pdfp search scan.pdf "invoice" --ocr auto --json
 ```
 
-`search` uses text already present in the PDF. Image-only scans need the planned OCR sidecar before they become searchable.
+By default, `search` uses text already present in the PDF. Add `--ocr auto` or `--ocr force` when image-only scans or damaged text layers need a searchable OCR derivative first.
 
 ### Page Operations
 
@@ -178,7 +255,9 @@ paper/
     page2_img1.png
 ```
 
-The markdown uses standard headings, lists, fenced code blocks, GFM tables, and image references like `![image](images/page1_img1.png)`.
+The markdown uses standard headings, lists, fenced code blocks, GFM tables, and image references. By default, image links point at embedded image objects such as `![image](images/page1_img1.png)`. With `--figures snapshot`, image links point at rendered visual figure regions such as `![image](images/page1_fig1.png)`.
+
+Table handling is local and coordinate-based for born-digital PDFs. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` for engineering catalogues where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
 
 Processor commands produce PDFs or JSON/human summaries. They currently preserve page contents conservatively, but outlines, document-level metadata, forms, and annotations are not yet guaranteed across merge/reorder/imposition workflows.
 

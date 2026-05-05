@@ -5,12 +5,14 @@ use mupdf::{Document, Quad, TextPageFlags};
 use serde::Serialize;
 
 use crate::cli::SearchArgs;
+use crate::ocr::{self, OcrDecision};
 
 #[derive(Debug, Serialize)]
 struct SearchReport {
     source: String,
     needle: String,
     page_count: usize,
+    ocr: OcrDecision,
     matches: Vec<SearchPageMatch>,
 }
 
@@ -36,7 +38,13 @@ struct PointReport {
 }
 
 pub fn run(args: &SearchArgs) -> anyhow::Result<()> {
-    let report = search_pdf(&args.input, &args.needle)?;
+    let prepared = ocr::prepare_pdf(&args.input, &args.ocr, args.verbose)?;
+    let report = search_pdf(
+        &prepared.effective_path,
+        &args.input,
+        &args.needle,
+        prepared.decision,
+    )?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -45,7 +53,12 @@ pub fn run(args: &SearchArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn search_pdf(path: &Path, needle: &str) -> anyhow::Result<SearchReport> {
+fn search_pdf(
+    path: &Path,
+    source_path: &Path,
+    needle: &str,
+    ocr: OcrDecision,
+) -> anyhow::Result<SearchReport> {
     let path_str = path.to_string_lossy();
     let doc = Document::open(path_str.as_ref())
         .with_context(|| format!("Failed to open {}", path.display()))?;
@@ -76,9 +89,10 @@ fn search_pdf(path: &Path, needle: &str) -> anyhow::Result<SearchReport> {
     }
 
     Ok(SearchReport {
-        source: path.display().to_string(),
+        source: source_path.display().to_string(),
         needle: needle.to_string(),
         page_count,
+        ocr,
         matches,
     })
 }

@@ -20,6 +20,10 @@ pub struct Cli {
 pub enum Command {
     /// Convert PDF files into markdown
     Convert(ConvertArgs),
+    /// Create a searchable OCR PDF
+    Ocr(OcrArgs),
+    /// Check installed and bundled runtime dependencies
+    Doctor(DoctorArgs),
     /// Inspect PDF metadata, page sizes, and scan-like signals
     Inspect(InspectArgs),
     /// Search PDF text and report matching pages
@@ -59,6 +63,30 @@ pub struct ConvertOptions {
     #[arg(long)]
     pub no_images: bool,
 
+    /// Figure/image output mode for markdown conversion
+    #[arg(long, value_enum, default_value = "embedded")]
+    pub figures: FigureMode,
+
+    /// Resolution for rendered figure snapshots
+    #[arg(long, default_value = "200")]
+    pub figure_dpi: u32,
+
+    /// Padding around detected figure regions, in PDF points
+    #[arg(long, default_value = "8.0")]
+    pub figure_padding: f32,
+
+    /// Write figure candidate debug JSON under debug/figures/
+    #[arg(long)]
+    pub debug_figures: bool,
+
+    /// Table extraction mode for markdown conversion
+    #[arg(long, value_enum, default_value = "auto")]
+    pub tables: TableMode,
+
+    /// Write table detection debug JSON under debug/tables/
+    #[arg(long)]
+    pub debug_tables: bool,
+
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,
@@ -90,6 +118,9 @@ pub struct ConvertOptions {
     /// metadata and page number.
     #[arg(long)]
     pub hybrid_cache_dir: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub ocr: OcrOptions,
 }
 
 #[derive(Args, Debug)]
@@ -100,6 +131,13 @@ pub struct InspectArgs {
     /// Emit machine-readable JSON to stdout
     #[arg(long)]
     pub json: bool,
+
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    #[command(flatten)]
+    pub ocr: OcrOptions,
 }
 
 #[derive(Args, Debug)]
@@ -124,6 +162,59 @@ pub struct SearchArgs {
     /// accepted now so the CLI contract does not need to change later.
     #[arg(long, default_value = "0")]
     pub context: usize,
+
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    #[command(flatten)]
+    pub ocr: OcrOptions,
+}
+
+#[derive(Args, Debug)]
+pub struct OcrArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// Output searchable PDF
+    #[arg(short, long)]
+    pub output: PathBuf,
+
+    /// OCR mode. `auto` skips born-digital/readable pages; `force` rasterizes
+    /// all pages and rebuilds the text layer.
+    #[arg(long, value_enum, default_value = "auto")]
+    pub mode: StandaloneOcrMode,
+
+    /// OCR language(s), passed to OCRmyPDF/Tesseract, e.g. `eng` or `eng+deu`.
+    #[arg(long, alias = "ocr-lang", default_value = "eng")]
+    pub lang: String,
+
+    /// Optional cache directory for derived searchable PDFs.
+    #[arg(long, alias = "ocr-cache-dir")]
+    pub cache_dir: Option<PathBuf>,
+
+    /// Timeout in seconds for OCR preprocessing.
+    #[arg(long, alias = "ocr-timeout-secs", default_value = "600")]
+    pub timeout_secs: u64,
+
+    /// OCRmyPDF executable path or command name.
+    #[arg(long, alias = "ocr-command", default_value = "ocrmypdf")]
+    pub command: PathBuf,
+
+    /// Emit machine-readable OCR decision JSON to stdout
+    #[arg(long)]
+    pub json: bool,
+
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DoctorArgs {
+    /// Emit machine-readable JSON to stdout
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -244,6 +335,8 @@ impl Cli {
     pub fn into_command(self) -> anyhow::Result<AppCommand> {
         match self.command {
             Some(Command::Convert(args)) => Ok(AppCommand::Convert(args)),
+            Some(Command::Ocr(args)) => Ok(AppCommand::Ocr(args)),
+            Some(Command::Doctor(args)) => Ok(AppCommand::Doctor(args)),
             Some(Command::Inspect(args)) => Ok(AppCommand::Inspect(args)),
             Some(Command::Search(args)) => Ok(AppCommand::Search(args)),
             Some(Command::Pages(args)) => Ok(AppCommand::Pages(args)),
@@ -267,11 +360,95 @@ impl Cli {
 #[derive(Debug)]
 pub enum AppCommand {
     Convert(ConvertArgs),
+    Ocr(OcrArgs),
+    Doctor(DoctorArgs),
     Inspect(InspectArgs),
     Search(SearchArgs),
     Pages(PagesCommand),
     Impose(ImposeCommand),
     Page(PageCommand),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct OcrOptions {
+    /// Local OCR preprocessing mode. `auto` OCRs scan-heavy PDFs only; `force`
+    /// OCRs regardless of readable text; `off` keeps the current fast path.
+    #[arg(long, value_enum, default_value = "off")]
+    pub ocr: OcrMode,
+
+    /// OCR language(s), passed to OCRmyPDF/Tesseract, e.g. `eng` or `eng+deu`.
+    #[arg(long, default_value = "eng")]
+    pub ocr_lang: String,
+
+    /// Optional cache directory for derived searchable PDFs.
+    #[arg(long)]
+    pub ocr_cache_dir: Option<PathBuf>,
+
+    /// Timeout in seconds for OCR preprocessing.
+    #[arg(long, default_value = "600")]
+    pub ocr_timeout_secs: u64,
+
+    /// OCRmyPDF executable path or command name.
+    #[arg(long, default_value = "ocrmypdf")]
+    pub ocr_command: PathBuf,
+}
+
+impl Default for OcrOptions {
+    fn default() -> Self {
+        Self {
+            ocr: OcrMode::Off,
+            ocr_lang: "eng".to_string(),
+            ocr_cache_dir: None,
+            ocr_timeout_secs: 600,
+            ocr_command: PathBuf::from("ocrmypdf"),
+        }
+    }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcrMode {
+    Off,
+    Auto,
+    Force,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FigureMode {
+    /// Current behavior: extract embedded raster image objects
+    Embedded,
+    /// Render complete detected figure regions as page snapshots
+    Snapshot,
+    /// Emit both rendered figure snapshots and embedded image objects
+    Both,
+    /// Do not emit image or figure assets
+    None,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableMode {
+    /// Detect tables automatically; emit Markdown when confident, layout text otherwise
+    Auto,
+    /// Force native coordinate-derived Markdown tables
+    Native,
+    /// Preserve detected table regions as fenced fixed-width layout text
+    Layout,
+    /// Disable coordinate table reconstruction
+    Off,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StandaloneOcrMode {
+    Auto,
+    Force,
+}
+
+impl From<StandaloneOcrMode> for OcrMode {
+    fn from(mode: StandaloneOcrMode) -> Self {
+        match mode {
+            StandaloneOcrMode::Auto => OcrMode::Auto,
+            StandaloneOcrMode::Force => OcrMode::Force,
+        }
+    }
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]

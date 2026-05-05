@@ -5,6 +5,7 @@ use mupdf::{Document as MuDocument, MetadataName};
 use serde::Serialize;
 
 use crate::cli::InspectArgs;
+use crate::ocr::{self, OcrDecision};
 use crate::pdf::extractor::PdfExtractor;
 
 #[derive(Debug, Serialize)]
@@ -18,6 +19,7 @@ struct InspectReport {
     image_only_pages: usize,
     low_density_pages: usize,
     likely_scan_like: bool,
+    ocr: OcrDecision,
     pages: Vec<PageReport>,
 }
 
@@ -37,7 +39,8 @@ struct PageReport {
 const MIN_TEXT_AREA_FRACTION: f32 = 0.02;
 
 pub fn run(args: &InspectArgs) -> anyhow::Result<()> {
-    let report = inspect_pdf(&args.input)?;
+    let prepared = ocr::prepare_pdf(&args.input, &args.ocr, args.verbose)?;
+    let report = inspect_pdf(&prepared.effective_path, &args.input, prepared.decision)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -46,7 +49,7 @@ pub fn run(args: &InspectArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn inspect_pdf(path: &Path) -> anyhow::Result<InspectReport> {
+fn inspect_pdf(path: &Path, source_path: &Path, ocr: OcrDecision) -> anyhow::Result<InspectReport> {
     let (raw_pages, metadata) = PdfExtractor::extract(path)
         .with_context(|| format!("Failed to inspect {}", path.display()))?;
 
@@ -90,7 +93,7 @@ fn inspect_pdf(path: &Path) -> anyhow::Result<InspectReport> {
     };
 
     Ok(InspectReport {
-        source: path.display().to_string(),
+        source: source_path.display().to_string(),
         page_count,
         title: metadata.title,
         author: metadata.author,
@@ -99,6 +102,7 @@ fn inspect_pdf(path: &Path) -> anyhow::Result<InspectReport> {
         image_only_pages,
         low_density_pages,
         likely_scan_like,
+        ocr,
         pages,
     })
 }
@@ -157,6 +161,7 @@ mod tests {
             image_only_pages: 1,
             low_density_pages: 1,
             likely_scan_like: true,
+            ocr: OcrDecision::off(Path::new("x.pdf"), &crate::cli::OcrOptions::default()),
             pages: Vec::new(),
         };
         assert!(report.likely_scan_like);

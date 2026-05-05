@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 /// Bounding box using corner coordinates (matches mupdf::Rect convention).
 /// Origin top-left, Y increases downward.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct Bbox {
     pub x0: f32,
     pub y0: f32,
@@ -74,6 +74,18 @@ pub struct RawTextBlock {
     pub reading_order: usize, // assigned by XY-Cut; default 0
 }
 
+/// A word reconstructed from positioned MuPDF characters.
+#[derive(Clone, Debug)]
+pub struct RawWord {
+    pub bbox: Bbox,
+    pub text: String,
+    pub font_size: f32,
+    pub page_num: usize,
+    pub block_id: usize,
+    pub line_id: usize,
+    pub baseline_y: f32,
+}
+
 /// Reference to an image found on a page (via TextPage block iteration).
 /// Carries the decoded image bytes so the caller can save them to disk.
 #[derive(Clone, Debug)]
@@ -100,6 +112,9 @@ pub enum BlockKind {
         row: usize,
         col: usize,
     },
+    CoordinateTable {
+        table: DetectedTable,
+    },
     Caption,
     CodeBlock,
     PageNumber,
@@ -122,6 +137,21 @@ pub enum BlockKind {
     },
 }
 
+/// A table reconstructed from positioned text rather than PDF semantic tags.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct DetectedTable {
+    pub bbox: Bbox,
+    pub rows: Vec<Vec<String>>,
+    pub confidence: f32,
+    pub render: TableRender,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub enum TableRender {
+    Markdown,
+    Layout { text: String },
+}
+
 /// A classified, reading-order-assigned block.
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -142,6 +172,7 @@ pub struct RawPage {
     pub width: f32,
     pub height: f32,
     pub blocks: Vec<RawTextBlock>,
+    pub words: Vec<RawWord>,
     pub image_refs: Vec<ImageRef>,
 }
 

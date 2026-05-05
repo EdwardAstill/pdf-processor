@@ -166,6 +166,7 @@ fn block_counts_as_readable_text(block: &Block) -> bool {
         | BlockKind::Formula { .. } => {
             !block.text.trim().is_empty() || matches!(block.kind, BlockKind::Formula { .. })
         }
+        BlockKind::CoordinateTable { table } => !table.rows.is_empty(),
         BlockKind::Figure { caption, .. } => {
             caption.as_deref().is_some_and(|c| !c.trim().is_empty())
         }

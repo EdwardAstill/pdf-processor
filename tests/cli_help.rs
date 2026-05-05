@@ -12,6 +12,8 @@ fn every_command_path_prints_help() {
     let commands: &[&[&str]] = &[
         &[],
         &["convert"],
+        &["ocr"],
+        &["doctor"],
         &["inspect"],
         &["search"],
         &["pages"],
@@ -46,5 +48,15 @@ fn every_command_path_prints_help() {
             stdout.contains("Usage:") && stdout.contains("--help"),
             "pdfp {command:?} --help did not look like clap help:\n{stdout}"
         );
+
+        if *command == ["convert"] {
+            assert!(
+                stdout.contains("--figures")
+                    && stdout.contains("--figure-dpi")
+                    && stdout.contains("--tables")
+                    && stdout.contains("--debug-tables"),
+                "convert help should document figure and table controls:\n{stdout}"
+            );
+        }
     }
 }

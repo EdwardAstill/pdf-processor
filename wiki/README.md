@@ -21,6 +21,7 @@ This is not a general-purpose PDF encyclopedia. It is scoped to the practical pr
 - [Tables, Forms, and Financial Documents](tables-forms-and-financials.md)
 - [Scans and OCR](scans-and-ocr.md)
 - [Markdown Rendering](markdown-rendering.md)
+- [Figure Snapshot Extraction](figure-snapshot-extraction.md)
 - [Information Extraction](information-extraction.md)
 - [Evaluation and Benchmarks](evaluation-and-benchmarks.md)
 - [Reference Implementations](reference-implementations.md)

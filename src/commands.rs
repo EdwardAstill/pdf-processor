@@ -9,6 +9,8 @@ use crate::processor;
 pub fn run(command: AppCommand) -> anyhow::Result<()> {
     match command {
         AppCommand::Convert(args) => run_convert(args),
+        AppCommand::Ocr(args) => processor::ocr_cmd::run(&args),
+        AppCommand::Doctor(args) => processor::doctor::run(&args),
         AppCommand::Inspect(args) => processor::inspect::run(&args),
         AppCommand::Search(args) => processor::search::run(&args),
         AppCommand::Pages(args) => processor::pages::run(&args),

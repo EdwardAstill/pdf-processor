@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" role="img" aria-labelledby="title desc">
+  <title id="title">pdf-processor logo</title>
+  <desc id="desc">A simple folded document mark beside the pdfp wordmark.</desc>
+  <style>
+    :root {
+      --ink: #202426;
+      --paper: #faf7ef;
+      --accent: #2f8f83;
+    }
+    .paper { fill: var(--paper); }
+    .ink { fill: none; stroke: var(--ink); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+    .accent { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; }
+    .word { fill: var(--ink); font: 700 46px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0; }
+  </style>
+
+  <path class="paper" d="M31 18h54l24 24v60H31z"/>
+  <path class="ink" d="M31 18h54l24 24v60H31z"/>
+  <path class="ink" d="M85 19v23h23"/>
+  <path class="accent" d="M49 58h39M49 76h29"/>
+  <text class="word" x="134" y="76">pdfp</text>
+</svg>

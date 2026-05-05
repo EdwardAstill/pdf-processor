@@ -404,6 +404,7 @@ mod tests {
             width,
             height,
             blocks,
+            words: vec![],
             image_refs: vec![],
         }
     }
@@ -573,6 +574,7 @@ mod tests {
                 block(18.0),
                 block(24.0),
             ],
+            words: vec![],
             image_refs: vec![],
         }];
         assert_eq!(compute_body_font_size(&pages), 12.0);
@@ -861,6 +863,7 @@ mod tests {
             width: 612.0,
             height: 792.0,
             blocks: Vec::new(),
+            words: Vec::new(),
             image_refs: Vec::new(),
         }
     }

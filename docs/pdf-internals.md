@@ -71,6 +71,32 @@ When mupdf extracts text, it interprets the content stream, tracks the transform
 
 The crucial thing to understand is that **there is no concept of "paragraphs" or "lines" in the content stream itself.** A PDF content stream knows only about glyphs at positions. Anything higher-level — word boundaries, line breaks, reading order, columns, tables — is *reconstructed* by the extractor from glyph positions. This is why PDF-to-text is hard and why projects like `cnv` have layers of heuristics (XY-Cut++, font-size classification, etc.) sitting on top of the raw glyph stream.
 
+## Coordinate table reconstruction
+
+`pdfp` now keeps word-level geometry in addition to MuPDF text blocks. Each `RawWord` carries text, bbox, font size, source block/line IDs, and baseline position. The old table path only clustered whole `RawTextBlock` bboxes, which failed on engineering catalogues where MuPDF may return an entire product table as one long text block. The coordinate path works below that level.
+
+The native detector follows the same broad shape as text-strategy table extractors:
+
+1. Group words into visual rows by baseline.
+2. Find row runs with repeated numeric/catalogue structure.
+3. Infer column centers from recurring word positions.
+4. Assign words into cells by x/y coordinates.
+5. Merge stacked header words where possible.
+6. Score confidence before choosing an output format.
+
+The CLI exposes this as:
+
+```sh
+pdfp convert catalogue.pdf --tables auto
+pdfp convert catalogue.pdf --tables native
+pdfp convert catalogue.pdf --tables layout
+pdfp convert catalogue.pdf --tables off
+```
+
+`auto` emits a GFM Markdown table when confidence is high. When a region is table-like but too ambiguous, it falls back to a fenced `text` layout block rather than collapsing the table into a long paragraph. `layout` forces that fixed-width fallback, which is useful for wide manufacturer catalogues. `native` forces Markdown output for detected coordinate tables. `--debug-tables` writes JSON under `<output>/debug/tables/`.
+
+This is not OCR. It depends on a usable text layer. Scanned or damaged-text tables still need `--ocr auto`, `--ocr force`, or a hybrid backend before coordinate reconstruction can see words.
+
 ## Coordinate systems — two gotchas
 
 1. **PDF page space has its origin at the bottom-left, y growing upward.** That is the classical mathematical convention but the opposite of every screen-based coordinate system you have ever touched. It is also the convention the OpenDataLoader Java implementation of XY-Cut++ uses.
@@ -195,9 +221,9 @@ The `/Filter` determines the encoding:
 
 An image is invoked from a page's content stream by `/Im1 Do`. Where `Im1` is an alias in `/Resources /XObject` pointing at the XObject. The position and scaling come from the `cm` operators issued before the `Do`.
 
-### How `cnv` extracts images today
+### How `pdfp` extracts images today
 
-mupdf's `TextBlock::image()` returns an `Option<Image>` for image-type blocks. `cnv`'s extractor (`src/pdf/extractor.rs`, Image arm in `extract_page`) calls `image.to_pixmap()` followed by `pixmap.write_to(bytes, ImageFormat::PNG)` to get PNG-encoded bytes, regardless of the original filter. That means:
+mupdf's `TextBlock::image()` returns an `Option<Image>` for image-type blocks. `pdfp`'s extractor (`src/pdf/extractor.rs`, Image arm in `extract_page`) calls `image.to_pixmap()` followed by `pixmap.write_to(bytes, ImageFormat::PNG)` to get PNG-encoded bytes, regardless of the original filter. That means:
 
 - Original JPEGs are transcoded to PNG. Lossless re-encoding of a lossy source — slightly wasteful, fine in practice.
 - 1-bit fax-compressed images become 24-bit PNG. Bigger files, readable output.
@@ -205,9 +231,19 @@ mupdf's `TextBlock::image()` returns an `Option<Image>` for image-type blocks. `
 
 The PNG is written to `<output>/images/page{N}_img{M}.png`, and a `Block { kind: BlockKind::Image { path: "images/..." } }` is inserted into the page in Y-position order. The resulting markdown carries `![image](images/page3_img1.png)` links.
 
+This is `--figures embedded`, the default compatibility mode.
+
+### Figure snapshots
+
+`--figures snapshot` takes a different path. It first detects likely figure regions from caption blocks and significant embedded-image bboxes, then renders the detected page region through MuPDF into `<output>/images/page{N}_fig{M}.png`. The rendered region can include text labels, axes, legends, vector paths, and multiple embedded images because it is captured from the painted page instead of from a single raster object.
+
+`--figures both` emits both asset styles. `--figures none` and `--no-images` suppress both embedded images and snapshots. `--debug-figures` writes candidate JSON under `<output>/debug/figures/` with page number, bbox, caption bbox, seed image indices, confidence, and reason.
+
+Snapshot detection is deliberately heuristic. It improves complete visual figure capture, but it is not a full semantic figure-understanding system. Blank rendered candidates are skipped.
+
 ### What `cnv` does not extract
 
-- Vector graphics drawn via `m l c S f` — ResNet's architecture diagrams, arXiv's TikZ figures, most flow charts. mupdf classifies these as `TextBlockType::Vector`, and our extractor drops `Vector` blocks explicitly.
+- Vector graphics drawn via `m l c S f` — ResNet's architecture diagrams, arXiv's TikZ figures, most flow charts. mupdf classifies these as `TextBlockType::Vector`, and the embedded-image extractor drops `Vector` blocks explicitly. Snapshot mode can still capture them when the detector finds the surrounding figure region.
 - Form fields (AcroForm). These are interactive UI elements laid over the page, drawn by the viewer not the content stream.
 - Annotations — highlights, comments, stamps — live in `/Annots` on the page dict. We do not read them.
 - Bookmarks / outlines live in `/Outlines` under the catalog. Not read.
