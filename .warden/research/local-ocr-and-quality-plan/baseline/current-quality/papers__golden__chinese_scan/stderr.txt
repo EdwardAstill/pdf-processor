@@ -1,0 +1,1 @@
+  warning: example/pdf/papers/golden/chinese_scan.pdf looks scan-heavy (1 image-only / 1 low-density page(s), 0 page(s) with readable text); local output may be poor. Try `--hybrid docling`.

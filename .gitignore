@@ -22,3 +22,6 @@ Cargo.lock
 /example/markdown/
 *_extracted/
 *.pdf
+
+# Warden local runtime state
+.warden/runtime/

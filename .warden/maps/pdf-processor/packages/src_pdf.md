@@ -1,0 +1,87 @@
+# Package: src/pdf
+
+
+## `src/pdf/extractor.rs`
+
+- `<module>` (module) — `src/pdf/extractor.rs:<module>`
+- `CharInfo` (type) — `extractor::CharInfo`
+- `PdfExtractor` (type) — `extractor::PdfExtractor`
+- `ScriptKind` (type) — `extractor::ScriptKind`
+- `WordBuilder` (type) — `extractor::WordBuilder`
+- `build_line_with_scripts_from_info` (function) — `extractor::build_line_with_scripts_from_info`
+- `classify_char_script` (function) — `extractor::classify_char_script`
+- `collect_block_text` (function) — `extractor::collect_block_text`
+- `collect_block_text_per_line` (function) — `extractor::collect_block_text_per_line`
+- `collect_block_words` (function) — `extractor::collect_block_words`
+- `dominant_font_name` (function) — `extractor::dominant_font_name`
+- `dominant_font_size` (function) — `extractor::dominant_font_size`
+- `extract` (function) — `extractor::extract`
+- `extract_metadata` (function) — `extractor::extract_metadata`
+- `extract_page` (function) — `extractor::extract_page`
+- `extract_pages` (function) — `extractor::extract_pages`
+- `finish` (function) — `extractor::finish`
+- `flush_script_run` (function) — `extractor::flush_script_run`
+- `group_into_text_rows` (function) — `extractor::group_into_text_rows`
+- `is_vertical_text` (function) — `extractor::is_vertical_text`
+- `largest_char_baseline` (function) — `extractor::largest_char_baseline`
+- `mupdf_rect_to_bbox` (function) — `extractor::mupdf_rect_to_bbox`
+- `push` (function) — `extractor::push`
+- `quad_to_bbox` (function) — `extractor::quad_to_bbox`
+- `test_build_line_interleaved_subscripts` (function) — `extractor::test_build_line_interleaved_subscripts`
+- `test_classify_aisc_subscript_borderline_shift` (function) — `extractor::test_classify_aisc_subscript_borderline_shift`
+- `test_classify_char_script_borderline_size` (function) — `extractor::test_classify_char_script_borderline_size`
+- `test_classify_char_script_large_at_different_position` (function) — `extractor::test_classify_char_script_large_at_different_position`
+- `test_classify_char_script_normal` (function) — `extractor::test_classify_char_script_normal`
+- `test_classify_char_script_small_but_no_shift` (function) — `extractor::test_classify_char_script_small_but_no_shift`
+- `test_classify_char_script_subscript` (function) — `extractor::test_classify_char_script_subscript`
+- `test_classify_char_script_superscript` (function) — `extractor::test_classify_char_script_superscript`
+- `test_classify_char_script_very_small_subtle_shift` (function) — `extractor::test_classify_char_script_very_small_subtle_shift`
+- `test_flush_script_run_empty` (function) — `extractor::test_flush_script_run_empty`
+- `test_flush_script_run_grouped` (function) — `extractor::test_flush_script_run_grouped`
+- `test_flush_script_run_normal` (function) — `extractor::test_flush_script_run_normal`
+- `test_flush_script_run_subscript` (function) — `extractor::test_flush_script_run_subscript`
+- `test_flush_script_run_superscript` (function) — `extractor::test_flush_script_run_superscript`
+- `test_group_into_text_rows_single_row` (function) — `extractor::test_group_into_text_rows_single_row`
+- `test_group_into_text_rows_subscript_assigned_to_nearest` (function) — `extractor::test_group_into_text_rows_subscript_assigned_to_nearest`
+- `test_group_into_text_rows_two_rows` (function) — `extractor::test_group_into_text_rows_two_rows`
+- `test_group_into_text_rows_x_sorted` (function) — `extractor::test_group_into_text_rows_x_sorted`
+
+## `src/pdf/metadata.rs`
+
+- `<module>` (module) — `src/pdf/metadata.rs:<module>`
+- `FontInfo` (type) — `metadata::FontInfo`
+- `PageMetadata` (type) — `metadata::PageMetadata`
+- `StructTag` (type) — `metadata::StructTag`
+- `bbox_overlap_score` (function) — `metadata::bbox_overlap_score`
+- `default_loader_returns_none` (function) — `metadata::default_loader_returns_none`
+- `font` (function) — `metadata::font`
+- `font_for_bbox` (function) — `metadata::font_for_bbox`
+- `font_for_bbox_ignores_non_overlapping` (function) — `metadata::font_for_bbox_ignores_non_overlapping`
+- `font_for_bbox_picks_the_containing_run` (function) — `metadata::font_for_bbox_picks_the_containing_run`
+- `font_for_bbox_returns_none_for_empty_metadata` (function) — `metadata::font_for_bbox_returns_none_for_empty_metadata`
+- `is_bold` (function) — `metadata::is_bold`
+- `is_bold_threshold` (function) — `metadata::is_bold_threshold`
+- `load` (function) — `metadata::load`
+- `load_page_metadata` (function) — `metadata::load_page_metadata`
+- `load_page_metadata` (function) — `metadata::load_page_metadata`
+- `struct_role_for_bbox` (function) — `metadata::struct_role_for_bbox`
+- `struct_role_match_requires_significant_overlap` (function) — `metadata::struct_role_match_requires_significant_overlap`
+- `weight_to_u16` (function) — `metadata::weight_to_u16`
+
+## `src/pdf/mod.rs`
+
+- `<module>` (module) — `src/pdf/mod.rs:<module>`
+
+## `src/pdf/text_cleanup.rs`
+
+- `<module>` (module) — `src/pdf/text_cleanup.rs:<module>`
+- `cleanup_extracted_text` (function) — `text_cleanup::cleanup_extracted_text`
+- `insert_space_after_numbered_section_label` (function) — `text_cleanup::insert_space_after_numbered_section_label`
+- `inserts_missing_space_after_numbered_section_label` (function) — `text_cleanup::inserts_missing_space_after_numbered_section_label`
+- `is_bad_control` (function) — `text_cleanup::is_bad_control`
+- `keeps_visible_hyphen_when_line_break_splits_compound_word` (function) — `text_cleanup::keeps_visible_hyphen_when_line_break_splits_compound_word`
+- `normalizes_safe_unicode_spacing_hyphen_and_ligatures` (function) — `text_cleanup::normalizes_safe_unicode_spacing_hyphen_and_ligatures`
+- `preserves_math_minus_and_em_dash` (function) — `text_cleanup::preserves_math_minus_and_em_dash`
+- `removes_soft_hyphen_artifacts_across_line_breaks` (function) — `text_cleanup::removes_soft_hyphen_artifacts_across_line_breaks`
+- `strips_control_chars_but_keeps_layout` (function) — `text_cleanup::strips_control_chars_but_keeps_layout`
+- `strips_zero_width_and_bidi_artifacts` (function) — `text_cleanup::strips_zero_width_and_bidi_artifacts`
