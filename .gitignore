@@ -8,7 +8,6 @@ Cargo.lock
 
 # Session-local Claude scheduler state
 .claude/
-.warden/
 
 # Keep tests/ small and text-only. Heavy local fixtures belong in test-corpus/.
 # Regenerate arXiv PDFs with scripts/fetch-papers.sh; copy OpenDataLoader
