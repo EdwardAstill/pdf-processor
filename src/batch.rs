@@ -19,15 +19,15 @@ pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
     if path.is_file() {
         if is_supported(path) {
             return Ok(vec![path.to_path_buf()]);
-        } else {
-            return Err(VtvError::InvalidInput(
-                input.to_string(),
-                format!(
-                    "unsupported file type; supported extensions: {}",
-                    SUPPORTED_EXTENSIONS.join(", ")
-                ),
-            ));
         }
+
+        return Err(VtvError::InvalidInput(
+            input.to_string(),
+            format!(
+                "unsupported file type; supported extensions: {}",
+                SUPPORTED_EXTENSIONS.join(", ")
+            ),
+        ));
     }
 
     // Directory — find all PDFs

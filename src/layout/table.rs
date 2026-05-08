@@ -500,6 +500,10 @@ pub(crate) fn detect_coordinate_tables(
         idx = end;
     }
 
+    if candidates.is_empty() {
+        candidates.extend(detect_alignment_tables(&rows, page_width, mode));
+    }
+
     suppress_overlapping_tables(candidates)
 }
 
@@ -650,6 +654,124 @@ fn looks_like_header_row(row: &WordRow<'_>) -> bool {
     keywords.iter().any(|keyword| text.contains(keyword))
 }
 
+fn detect_alignment_tables(
+    rows: &[WordRow<'_>],
+    page_width: f32,
+    mode: TableMode,
+) -> Vec<TableCandidate> {
+    let mut candidates = Vec::new();
+    let mut idx = 0usize;
+    while idx < rows.len() {
+        if !looks_like_alignment_row(&rows[idx]) {
+            idx += 1;
+            continue;
+        }
+
+        let start = idx;
+        let mut end = idx + 1;
+        while end < rows.len() && looks_like_alignment_row(&rows[end]) {
+            let gap = rows[end].baseline_y - rows[end - 1].baseline_y;
+            if gap > median_font_size(&rows[end]) * 2.8 {
+                break;
+            }
+            end += 1;
+        }
+
+        let run = &rows[start..end];
+        if run.len() >= 4 && !run.iter().all(|row| looks_like_prose_table_row(row)) {
+            if let Some(candidate) = build_alignment_table_candidate(run, page_width, mode) {
+                candidates.push(candidate);
+            }
+        }
+        idx = end;
+    }
+    candidates
+}
+
+fn looks_like_alignment_row(row: &WordRow<'_>) -> bool {
+    if row.words.len() < 3 || row.words.len() > 16 {
+        return false;
+    }
+    let width = row.bbox.width();
+    width >= 70.0
+        && row
+            .words
+            .iter()
+            .filter(|word| !word.text.trim().is_empty())
+            .count()
+            >= 3
+}
+
+fn looks_like_prose_table_row(row: &WordRow<'_>) -> bool {
+    if row.words.len() < 6 {
+        return false;
+    }
+    let stopwords = [
+        "a", "an", "and", "are", "as", "at", "for", "from", "in", "is", "of", "on", "or", "the",
+        "to", "with", "without",
+    ];
+    let stopword_count = row
+        .words
+        .iter()
+        .filter(|word| stopwords.contains(&word.text.to_ascii_lowercase().as_str()))
+        .count();
+    let numeric_count = row
+        .words
+        .iter()
+        .filter(|word| looks_like_table_value(&word.text))
+        .count();
+    stopword_count >= 1 && numeric_count == 0
+}
+
+fn build_alignment_table_candidate(
+    rows: &[WordRow<'_>],
+    page_width: f32,
+    mode: TableMode,
+) -> Option<TableCandidate> {
+    let mut count_histogram = std::collections::BTreeMap::new();
+    for row in rows {
+        *count_histogram.entry(row.words.len()).or_insert(0usize) += 1;
+    }
+    let (column_count, matching_rows) = count_histogram
+        .into_iter()
+        .max_by_key(|(cols, hits)| (*hits, *cols))?;
+    if column_count < 3 || matching_rows < 3 {
+        return None;
+    }
+
+    let matching: Vec<&WordRow<'_>> = rows
+        .iter()
+        .filter(|row| row.words.len() == column_count)
+        .collect();
+    let centers = average_column_centers(&matching, column_count)?;
+    if !columns_are_stable(&matching, &centers) {
+        return None;
+    }
+
+    build_table_candidate(rows, 1.min(rows.len() - 1), page_width, mode)
+}
+
+fn average_column_centers(rows: &[&WordRow<'_>], column_count: usize) -> Option<Vec<f32>> {
+    let mut centers = vec![0.0; column_count];
+    for row in rows {
+        for (idx, word) in row.words.iter().enumerate() {
+            centers[idx] += word.bbox.center_x();
+        }
+    }
+    for center in &mut centers {
+        *center /= rows.len().max(1) as f32;
+    }
+    Some(centers)
+}
+
+fn columns_are_stable(rows: &[&WordRow<'_>], centers: &[f32]) -> bool {
+    rows.iter().all(|row| {
+        row.words.iter().zip(centers.iter()).all(|(word, center)| {
+            (word.bbox.center_x() - center).abs() <= word.font_size.max(8.0) * 1.8
+        })
+    })
+}
+
 fn build_table_candidate(
     rows: &[WordRow<'_>],
     first_data_idx: usize,
@@ -761,7 +883,6 @@ fn collapse_header_tokens(tokens: &[String]) -> String {
         out.push(trimmed.to_string());
     }
     out.join(" ")
-        .replace("Stock No.", "Stock No.")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -816,8 +937,14 @@ fn table_confidence(
         .map(|row| row.bbox.width())
         .fold(0.0f32, f32::max)
         / page_width.max(1.0);
-    (row_consistency * 0.45 + numeric_density * 0.35 + width_ratio.min(1.0) * 0.20).clamp(0.0, 1.0)
-        + (column_count >= 6) as u8 as f32 * 0.05
+    let mut confidence =
+        (row_consistency * 0.45 + numeric_density * 0.35 + width_ratio.min(1.0) * 0.20)
+            .clamp(0.0, 1.0)
+            + (column_count >= 6) as u8 as f32 * 0.05;
+    if data_rows.iter().any(|row| row.words.len() != column_count) {
+        confidence = confidence.min(0.68);
+    }
+    confidence
 }
 
 fn render_layout_text(rows: &[WordRow<'_>]) -> String {
@@ -834,7 +961,12 @@ fn render_layout_text(rows: &[WordRow<'_>]) -> String {
         for word in &row.words {
             let target = ((word.bbox.x0 - min_x) / points_per_char).round().max(0.0) as usize;
             if line.len() < target {
-                line.push_str(&" ".repeat(target - line.len()));
+                let gap = target - line.len();
+                if gap <= 6 && !line.is_empty() {
+                    line.push(' ');
+                } else {
+                    line.push_str(&" ".repeat(gap));
+                }
             } else if !line.ends_with(' ') && !line.is_empty() {
                 line.push(' ');
             }
@@ -920,6 +1052,19 @@ mod tests {
             .enumerate()
             .map(|(col, value)| word(value, col, row))
             .collect()
+    }
+
+    fn word_at(text: &str, x0: f32, row: usize, width: f32) -> RawWord {
+        let y0 = 100.0 + row as f32 * 14.0;
+        RawWord {
+            bbox: Bbox::new(x0, y0, x0 + width, y0 + 10.0),
+            text: text.to_string(),
+            font_size: 9.0,
+            page_num: 0,
+            block_id: row,
+            line_id: row,
+            baseline_y: y0 + 8.0,
+        }
     }
 
     #[test]
@@ -1024,5 +1169,59 @@ mod tests {
         let tables = detect_coordinate_tables(&words, 600.0, TableMode::Auto);
 
         assert!(tables.is_empty());
+    }
+
+    #[test]
+    fn coordinate_table_detects_text_alignment_grid() {
+        let mut words = Vec::new();
+        words.extend(row_words(0, &["Component", "Type", "Status"]));
+        words.extend(row_words(1, &["Valve", "Gate", "Open"]));
+        words.extend(row_words(2, &["Pump", "Centrifugal", "Running"]));
+        words.extend(row_words(3, &["Motor", "Electric", "Spare"]));
+
+        let tables = detect_coordinate_tables(&words, 600.0, TableMode::Auto);
+
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].table.rows[0], vec!["Component", "Type", "Status"]);
+        assert_eq!(tables[0].table.rows[2][1], "Centrifugal");
+    }
+
+    #[test]
+    fn coordinate_table_keeps_wrapped_label_rows_in_layout_fallback() {
+        let mut words = Vec::new();
+        words.extend(vec![
+            word_at("Item", 50.0, 0, 24.0),
+            word_at("2025", 200.0, 0, 26.0),
+            word_at("2024", 300.0, 0, 26.0),
+            word_at("2023", 400.0, 0, 26.0),
+            word_at("Revenue", 50.0, 1, 46.0),
+            word_at("100", 200.0, 1, 20.0),
+            word_at("90", 300.0, 1, 16.0),
+            word_at("80", 400.0, 1, 16.0),
+            word_at("Assets", 50.0, 2, 38.0),
+            word_at("70", 200.0, 2, 16.0),
+            word_at("65", 300.0, 2, 16.0),
+            word_at("60", 400.0, 2, 16.0),
+            word_at("Equity", 50.0, 3, 34.0),
+            word_at("30", 200.0, 3, 16.0),
+            word_at("25", 300.0, 3, 16.0),
+            word_at("20", 400.0, 3, 16.0),
+            word_at("Operating", 50.0, 4, 54.0),
+            word_at("profit", 108.0, 4, 32.0),
+            word_at("50", 200.0, 4, 16.0),
+            word_at("45", 300.0, 4, 16.0),
+            word_at("40", 400.0, 4, 16.0),
+        ]);
+
+        let tables = detect_coordinate_tables(&words, 600.0, TableMode::Auto);
+
+        assert_eq!(tables.len(), 1);
+        match &tables[0].table.render {
+            TableRender::Layout { text } => {
+                assert!(text.contains("Operating profit"));
+                assert!(text.contains("2025"));
+            }
+            other => panic!("expected ambiguous wrapped row to use layout fallback, got {other:?}"),
+        }
     }
 }

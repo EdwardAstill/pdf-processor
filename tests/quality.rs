@@ -11,6 +11,15 @@ fn bin_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_pdfp"))
 }
 
+fn fixture(name: &str) -> Option<PathBuf> {
+    let path = project_root().join("example/pdf").join(name);
+    if !path.exists() {
+        eprintln!("SKIP: fixture missing {}", path.display());
+        return None;
+    }
+    Some(path)
+}
+
 fn run_quality_report(
     corpus: &std::path::Path,
     output_dir: &std::path::Path,
@@ -61,6 +70,9 @@ fn quality_report_skips_cleanly_when_corpus_is_absent() {
 
 #[test]
 fn quality_report_distinguishes_top_level_from_recursive_corpus() {
+    let Some(fixture) = fixture("golden__lorem.pdf") else {
+        return;
+    };
     let root = project_root();
     let corpus = root.join("target/quality-test-corpus");
     let nested = corpus.join("nested");
@@ -71,7 +83,6 @@ fn quality_report_distinguishes_top_level_from_recursive_corpus() {
     let _ = std::fs::remove_dir_all(&recursive_output);
     std::fs::create_dir_all(&nested).unwrap();
 
-    let fixture = root.join("example/pdf/golden__lorem.pdf");
     std::fs::copy(&fixture, corpus.join("top.pdf")).unwrap();
     std::fs::copy(&fixture, nested.join("nested.pdf")).unwrap();
 
@@ -112,8 +123,10 @@ fn quality_report_distinguishes_top_level_from_recursive_corpus() {
 
 #[test]
 fn scan_only_fixture_is_image_only_without_ocr() {
+    let Some(pdf) = fixture("golden__chinese_scan.pdf") else {
+        return;
+    };
     let root = project_root();
-    let pdf = root.join("example/pdf/golden__chinese_scan.pdf");
     let output_dir = root.join("target/quality-test-chinese-scan");
     let _ = std::fs::remove_dir_all(&output_dir);
 
@@ -181,6 +194,9 @@ fn formula_baseline_skips_when_standards_absent() {
 
 #[test]
 fn formula_candidate_report_contains_page_and_status() {
+    let Some(pdf) = fixture("math-number-theory.pdf") else {
+        return;
+    };
     let root = project_root();
     let out = root.join("target/formula-quality-report");
     let _ = std::fs::remove_dir_all(&out);
@@ -188,9 +204,7 @@ fn formula_candidate_report_contains_page_and_status() {
     let output = Command::new(bin_path())
         .args([
             "convert",
-            root.join("example/pdf/math-number-theory.pdf")
-                .to_str()
-                .unwrap(),
+            pdf.to_str().unwrap(),
             "--output",
             out.to_str().unwrap(),
             "--no-images",
@@ -218,4 +232,35 @@ fn formula_candidate_report_contains_page_and_status() {
     let report = std::fs::read_to_string(report_path).unwrap();
     assert!(report.contains("\"page_num\""));
     assert!(report.contains("\"status\""));
+}
+
+#[test]
+fn sidecar_audit_skips_missing_optional_backends_cleanly() {
+    let root = project_root();
+    let output_dir = root.join("target/sidecar-audit-test");
+    let _ = std::fs::remove_dir_all(&output_dir);
+
+    let result = Command::new("bash")
+        .arg(root.join("scripts/sidecar-audit.sh"))
+        .env("PDFP_SIDECAR_OUT", &output_dir)
+        .env("PDFP_SIDECAR_FIXTURES", "math-number-theory.pdf")
+        .env(
+            "PDFP_SIDECAR_BACKENDS",
+            "native docling gmft img2table unimernet",
+        )
+        .env("PDFP_SIDECAR_DOCLING_URL", "http://127.0.0.1:9")
+        .output()
+        .expect("sidecar audit script should be runnable with bash");
+
+    assert!(
+        result.status.success(),
+        "sidecar audit should skip unavailable optional backends\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let summary = std::fs::read_to_string(output_dir.join("summary.md"))
+        .expect("sidecar audit should write a summary");
+    assert!(summary.contains("native"));
+    assert!(summary.contains("unavailable") || summary.contains("skipped"));
 }

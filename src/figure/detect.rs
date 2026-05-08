@@ -44,18 +44,25 @@ pub fn detect_figure_candidates(
     for caption in captions {
         let nearby = nearby_images_for_caption(caption.bbox, &visual_seeds, raw_page.height);
         if nearby.is_empty() {
-            let bbox = estimate_caption_only_region(caption.bbox, raw_page.width, raw_page.height);
-            if bbox.height() > raw_page.height * 0.04 {
+            if let Some((bbox, confidence, reason)) =
+                estimate_caption_only_region(caption.bbox, raw_page.width, raw_page.height, blocks)
+            {
                 let mut padded = pad_and_clamp(bbox, options.padding, page_bbox);
-                padded.y1 = padded.y1.min(caption.bbox.y0 - 1.0).max(padded.y0);
+                if padded.overlaps(&caption.bbox) {
+                    if bbox.center_y() < caption.bbox.center_y() {
+                        padded.y1 = padded.y1.min(caption.bbox.y0 - 1.0).max(padded.y0);
+                    } else {
+                        padded.y0 = padded.y0.max(caption.bbox.y1 + 1.0).min(padded.y1);
+                    }
+                }
                 candidates.push(FigureCandidate {
                     page_num: raw_page.page_num,
                     figure_index: candidates.len(),
                     bbox: padded,
                     caption_bbox: Some(caption.bbox),
                     seed_image_indices: Vec::new(),
-                    confidence: 38,
-                    reason: "caption-only-estimate".to_string(),
+                    confidence,
+                    reason,
                 });
             }
             continue;
@@ -187,15 +194,90 @@ fn horizontal_related(a: Bbox, b: Bbox) -> bool {
     overlap || center_distance <= a.width().max(b.width()) * 0.75
 }
 
-fn estimate_caption_only_region(caption: Bbox, page_width: f32, page_height: f32) -> Bbox {
+fn estimate_caption_only_region(
+    caption: Bbox,
+    page_width: f32,
+    page_height: f32,
+    blocks: &[Block],
+) -> Option<(Bbox, u8, String)> {
     let estimated_height = (page_height * 0.24).clamp(90.0, 220.0);
-    let gap = 6.0;
-    Bbox::new(
+    let gap = 10.0;
+    let above = Bbox::new(
         page_width * 0.08,
         (caption.y0 - estimated_height - gap).max(0.0),
         page_width * 0.92,
         (caption.y0 - gap).max(0.0),
-    )
+    );
+    let below = Bbox::new(
+        page_width * 0.08,
+        (caption.y1 + gap).min(page_height),
+        page_width * 0.92,
+        (caption.y1 + gap + estimated_height).min(page_height),
+    );
+
+    [("above", above), ("below", below)]
+        .into_iter()
+        .filter(|(_, bbox)| bbox.height() > page_height * 0.04)
+        .map(|(direction, bbox)| {
+            let contamination = body_text_contamination(bbox, caption, blocks);
+            let edge_penalty = if bbox.y0 <= 1.0 || bbox.y1 >= page_height - 1.0 {
+                8.0
+            } else {
+                0.0
+            };
+            let score = (46.0 - contamination * 85.0 - edge_penalty).clamp(8.0, 58.0);
+            (direction, bbox, score)
+        })
+        .max_by(|left, right| {
+            left.2
+                .partial_cmp(&right.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    if left.0 == "above" && right.0 == "below" {
+                        std::cmp::Ordering::Greater
+                    } else if left.0 == "below" && right.0 == "above" {
+                        std::cmp::Ordering::Less
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                })
+        })
+        .map(|(direction, bbox, score)| {
+            let confidence = score.round() as u8;
+            let reason = if direction == "above" {
+                "caption-only-estimate".to_string()
+            } else {
+                "caption-only-proposal-below".to_string()
+            };
+            (bbox, confidence, reason)
+        })
+}
+
+fn body_text_contamination(region: Bbox, caption: Bbox, blocks: &[Block]) -> f32 {
+    let overlap_area: f32 = blocks
+        .iter()
+        .filter(|block| {
+            !matches!(block.kind, BlockKind::Caption) && !looks_like_caption(&block.text)
+        })
+        .filter(|block| !same_bbox(block.bbox, caption))
+        .map(|block| intersection_area(region, block.bbox))
+        .sum();
+    (overlap_area / region.area().max(1.0)).clamp(0.0, 1.0)
+}
+
+fn same_bbox(a: Bbox, b: Bbox) -> bool {
+    (a.x0 - b.x0).abs() < 0.1
+        && (a.y0 - b.y0).abs() < 0.1
+        && (a.x1 - b.x1).abs() < 0.1
+        && (a.y1 - b.y1).abs() < 0.1
+}
+
+fn intersection_area(a: Bbox, b: Bbox) -> f32 {
+    let x0 = a.x0.max(b.x0);
+    let y0 = a.y0.max(b.y0);
+    let x1 = a.x1.min(b.x1);
+    let y1 = a.y1.min(b.y1);
+    ((x1 - x0).max(0.0)) * ((y1 - y0).max(0.0))
 }
 
 fn image_only_groups<'a>(
@@ -404,6 +486,19 @@ mod tests {
         }
     }
 
+    fn paragraph(id: usize, bbox: Bbox, text: &str) -> Block {
+        Block {
+            id,
+            bbox,
+            text: text.to_string(),
+            kind: BlockKind::Paragraph,
+            font_size: 10.0,
+            font_name: "test".to_string(),
+            page_num: 0,
+            reading_order: id,
+        }
+    }
+
     #[test]
     fn groups_multiple_panels_with_caption_below() {
         let raw = raw_page(vec![
@@ -434,6 +529,48 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].reason, "caption-only-estimate");
         assert!(candidates[0].bbox.y1 < 360.0);
+    }
+
+    #[test]
+    fn caption_only_region_scores_against_body_text() {
+        let raw = raw_page(Vec::new());
+        let caption = caption(360.0, "Figure 3: vector-only chart");
+        let body = paragraph(
+            2,
+            Bbox::new(70.0, 130.0, 530.0, 330.0),
+            "Dense body text above the caption should not become the figure crop.",
+        );
+
+        let candidates =
+            detect_figure_candidates(&raw, &[body, caption], FigureDetectionOptions::default());
+
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            candidates[0].bbox.y0 >= 378.0,
+            "expected the candidate below the caption, got {:?}",
+            candidates[0].bbox
+        );
+        assert!(candidates[0].reason.contains("caption-only-proposal"));
+    }
+
+    #[test]
+    fn caption_only_region_can_choose_region_below_caption() {
+        let raw = raw_page(Vec::new());
+        let caption = caption(180.0, "Fig. 4. Diagram below the caption");
+        let header_text = paragraph(2, Bbox::new(75.0, 60.0, 520.0, 165.0), "Introductory prose");
+
+        let candidates = detect_figure_candidates(
+            &raw,
+            &[header_text, caption],
+            FigureDetectionOptions::default(),
+        );
+
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            candidates[0].bbox.y0 > 198.0,
+            "expected region below the caption, got {:?}",
+            candidates[0].bbox
+        );
     }
 
     #[test]

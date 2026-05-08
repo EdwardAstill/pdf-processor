@@ -635,12 +635,21 @@ mod tests {
 
     #[test]
     fn cache_key_changes_with_language() {
-        let input = Path::new("example/pdf/golden__lorem.pdf");
-        let mut a = options(OcrMode::Auto);
+        let input =
+            std::env::temp_dir().join(format!("pdfp-cache-key-test-{}.pdf", std::process::id()));
+        std::fs::write(&input, b"%PDF-1.4\n").unwrap();
+
+        let a = options(OcrMode::Auto);
         let mut b = options(OcrMode::Auto);
         b.ocr_lang = "eng+deu".to_string();
-        assert_ne!(cache_key(input, &a).unwrap(), cache_key(input, &b).unwrap());
-        a.ocr_command = PathBuf::from("other-ocrmypdf");
-        assert_ne!(cache_key(input, &a).unwrap(), cache_key(input, &b).unwrap());
+
+        let base = cache_key(&input, &a).unwrap();
+        assert_ne!(base, cache_key(&input, &b).unwrap());
+
+        let mut c = options(OcrMode::Auto);
+        c.ocr_command = PathBuf::from("other-ocrmypdf");
+        assert_ne!(base, cache_key(&input, &c).unwrap());
+
+        let _ = std::fs::remove_file(input);
     }
 }

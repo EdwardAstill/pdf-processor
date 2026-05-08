@@ -161,6 +161,8 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     } else {
         detect_formula_candidates(&raw_page)
     };
+    formula_candidates =
+        suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
     if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
         write_formula_debug(
             ctx.pdf_path,
@@ -381,6 +383,30 @@ fn suppress_text_covered_by_tables(
                 candidate.source_block_ids.contains(&block.id)
                     || bbox_overlap_ratio(block.bbox, candidate.table.bbox) > 0.55
             })
+        })
+        .collect()
+}
+
+fn suppress_formula_candidates_overlapping_tables(
+    candidates: Vec<FormulaCandidate>,
+    tables: &[TableCandidate],
+) -> Vec<FormulaCandidate> {
+    if candidates.is_empty() || tables.is_empty() {
+        return candidates;
+    }
+
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            !tables.iter().any(|table| {
+                table.table.confidence >= 0.70
+                    && bbox_overlap_ratio(candidate.bbox, table.table.bbox) > 0.55
+            })
+        })
+        .enumerate()
+        .map(|(idx, mut candidate)| {
+            candidate.formula_index = idx;
+            candidate
         })
         .collect()
 }
@@ -660,4 +686,61 @@ fn write_document(doc: &Document, input_path: &Path, args: &ConvertArgs) -> anyh
 
     formats::raw::RawFormat::write(&rendered, doc, &output_dir, &stem)
         .with_context(|| format!("Failed to write output to {}", output_dir.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::types::{Bbox, DetectedTable, TableRender};
+    use crate::formula::detect::{FormulaCandidate, FormulaStatus};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn suppresses_formula_candidates_inside_strong_tables() {
+        let table = TableCandidate {
+            table: DetectedTable {
+                bbox: Bbox::new(80.0, 100.0, 520.0, 240.0),
+                rows: vec![
+                    vec!["Item".into(), "2025".into(), "2024".into()],
+                    vec!["Revenue".into(), "100".into(), "90".into()],
+                ],
+                confidence: 0.86,
+                render: TableRender::Markdown,
+            },
+            source_block_ids: BTreeSet::new(),
+        };
+        let inside = FormulaCandidate {
+            page_num: 0,
+            formula_index: 0,
+            bbox: Bbox::new(120.0, 140.0, 500.0, 162.0),
+            source_text: "Revenue + assets = total".into(),
+            equation_number: None,
+            confidence: 80,
+            status: FormulaStatus::LocalCandidate,
+            backend: None,
+            latex: None,
+            reason: "relation+math-symbols".into(),
+            crop_path: None,
+        };
+        let outside = FormulaCandidate {
+            page_num: 0,
+            formula_index: 1,
+            bbox: Bbox::new(160.0, 320.0, 460.0, 342.0),
+            source_text: "F = m a".into(),
+            equation_number: Some("(1)".into()),
+            confidence: 88,
+            status: FormulaStatus::LocalCandidate,
+            backend: None,
+            latex: None,
+            reason: "centered+equation-number+relation".into(),
+            crop_path: None,
+        };
+
+        let filtered =
+            suppress_formula_candidates_overlapping_tables(vec![inside, outside], &[table]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].source_text, "F = m a");
+        assert_eq!(filtered[0].formula_index, 0);
+    }
 }

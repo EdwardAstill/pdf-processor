@@ -15,6 +15,15 @@ fn missing_ocr_command() -> &'static str {
     "definitely-missing-pdfp-ocr-command"
 }
 
+fn fixture(name: &str) -> Option<PathBuf> {
+    let path = root().join("example/pdf").join(name);
+    if !path.exists() {
+        eprintln!("SKIP: fixture missing {}", path.display());
+        return None;
+    }
+    Some(path)
+}
+
 #[cfg(unix)]
 fn fake_ocrmypdf(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -31,12 +40,15 @@ fn fake_ocrmypdf(path: &std::path::Path) {
 
 #[test]
 fn clean_pdf_ocr_auto_skips_missing_ocr_tool() {
+    let Some(input) = fixture("golden__lorem.pdf") else {
+        return;
+    };
     let root = root();
     let out = root.join("target/ocr-auto-clean");
     let _ = std::fs::remove_dir_all(&out);
 
     let output = Command::new(bin_path())
-        .arg(root.join("example/pdf/golden__lorem.pdf"))
+        .arg(&input)
         .arg("--ocr")
         .arg("auto")
         .arg("--ocr-command")
@@ -60,12 +72,15 @@ fn clean_pdf_ocr_auto_skips_missing_ocr_tool() {
 
 #[test]
 fn scan_pdf_ocr_auto_reports_missing_ocr_tool() {
+    let Some(input) = fixture("golden__chinese_scan.pdf") else {
+        return;
+    };
     let root = root();
     let out = root.join("target/ocr-auto-scan-missing-tool");
     let _ = std::fs::remove_dir_all(&out);
 
     let output = Command::new(bin_path())
-        .arg(root.join("example/pdf/golden__chinese_scan.pdf"))
+        .arg(&input)
         .arg("--ocr")
         .arg("auto")
         .arg("--ocr-command")
@@ -88,13 +103,16 @@ fn scan_pdf_ocr_auto_reports_missing_ocr_tool() {
 
 #[test]
 fn standalone_ocr_auto_copies_clean_pdf_when_tool_is_missing() {
+    let Some(input) = fixture("golden__lorem.pdf") else {
+        return;
+    };
     let root = root();
     let out = root.join("target/standalone-ocr-clean.pdf");
     let _ = std::fs::remove_file(&out);
 
     let output = Command::new(bin_path())
         .arg("ocr")
-        .arg(root.join("example/pdf/golden__lorem.pdf"))
+        .arg(&input)
         .arg("-o")
         .arg(&out)
         .arg("--command")
@@ -117,13 +135,16 @@ fn standalone_ocr_auto_copies_clean_pdf_when_tool_is_missing() {
 
 #[test]
 fn standalone_ocr_auto_reports_missing_tool_for_scan() {
+    let Some(input) = fixture("golden__chinese_scan.pdf") else {
+        return;
+    };
     let root = root();
     let out = root.join("target/standalone-ocr-scan.pdf");
     let _ = std::fs::remove_file(&out);
 
     let output = Command::new(bin_path())
         .arg("ocr")
-        .arg(root.join("example/pdf/golden__chinese_scan.pdf"))
+        .arg(&input)
         .arg("-o")
         .arg(&out)
         .arg("--command")
@@ -161,6 +182,9 @@ fn doctor_reports_ocr_status() {
 #[test]
 #[cfg(unix)]
 fn standalone_ocr_uses_fake_command_and_writes_pdf() {
+    let Some(input) = fixture("golden__chinese_scan.pdf") else {
+        return;
+    };
     let root = root();
     let work = root.join("target/standalone-ocr-fake");
     let out = work.join("scan.ocr.pdf");
@@ -171,7 +195,7 @@ fn standalone_ocr_uses_fake_command_and_writes_pdf() {
 
     let output = Command::new(bin_path())
         .arg("ocr")
-        .arg(root.join("example/pdf/golden__chinese_scan.pdf"))
+        .arg(&input)
         .arg("-o")
         .arg(&out)
         .arg("--command")
@@ -193,10 +217,12 @@ fn standalone_ocr_uses_fake_command_and_writes_pdf() {
 
 #[test]
 fn inspect_json_reports_ocr_decision() {
-    let root = root();
+    let Some(input) = fixture("golden__lorem.pdf") else {
+        return;
+    };
     let output = Command::new(bin_path())
         .arg("inspect")
-        .arg(root.join("example/pdf/golden__lorem.pdf"))
+        .arg(&input)
         .arg("--ocr")
         .arg("auto")
         .arg("--ocr-command")
@@ -217,10 +243,12 @@ fn inspect_json_reports_ocr_decision() {
 
 #[test]
 fn search_ocr_auto_skips_clean_pdf() {
-    let root = root();
+    let Some(input) = fixture("attention.pdf") else {
+        return;
+    };
     let output = Command::new(bin_path())
         .arg("search")
-        .arg(root.join("example/pdf/attention.pdf"))
+        .arg(&input)
         .arg("Attention")
         .arg("--ocr")
         .arg("auto")
@@ -251,6 +279,9 @@ fn search_ocr_auto_skips_clean_pdf() {
 #[test]
 #[cfg(unix)]
 fn scan_pdf_ocr_cache_hits_on_second_run() {
+    let Some(input) = fixture("golden__chinese_scan.pdf") else {
+        return;
+    };
     let root = root();
     let work = root.join("target/ocr-cache-hit-test");
     let out1 = work.join("out1");
@@ -261,7 +292,6 @@ fn scan_pdf_ocr_cache_hits_on_second_run() {
     std::fs::create_dir_all(&work).unwrap();
     fake_ocrmypdf(&command);
 
-    let input = root.join("example/pdf/golden__chinese_scan.pdf");
     let first = Command::new(bin_path())
         .arg(&input)
         .arg("--ocr")

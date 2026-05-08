@@ -42,6 +42,12 @@ PDFP_QUALITY_CORPUS=example/pdf PDFP_QUALITY_RECURSIVE=1 PDFP_QUALITY_OUT=target
   bash scripts/quality-report.sh
 # → writes a recursive report over all 44 checked-in example PDFs
 
+bash scripts/example-audit.sh
+# → writes target/example-audit/summary.md with quality, table, formula, figure, and scan signals
+
+bash scripts/sidecar-audit.sh
+# → writes target/sidecar-audit/summary.md; optional Docling/gmft/img2table/UniMERNet backends skip cleanly when unavailable
+
 cargo clippy --all-targets -- -D warnings
 # → clean
 
@@ -140,6 +146,7 @@ Current processor limitations:
   - `--hybrid off` produces byte-identical output to the Phase 1 snapshot — regression guard across all later phases.
 - **Corpus sweep** — invokes the built binary against 13 real PDFs (arXiv ML papers + OpenDataLoader fixtures including a Chinese scan and an Italian invoice). Asserts exit 0, non-empty markdown, and ≥ 1 image extracted for figure-heavy papers.
 - **Snapshot** — `tests/snapshots/attention_page_1.md` is the authoritative reference for the local path's reading order + classification on a two-column academic paper. Regenerate with `GOLDEN_UPDATE=1`.
+- **Sidecar audit** — `scripts/sidecar-audit.sh` compares native output with optional external backends. It skips unavailable Docling/gmft/img2table/UniMERNet commands and still writes `target/sidecar-audit/summary.md`.
 
 ## Test PDFs
 
@@ -177,6 +184,8 @@ bash scripts/quality-diff.sh \
 ```
 
 Regenerate the stored baseline only after intentionally changing extraction behavior. Before regenerating, inspect the changed Markdown under the relevant `target/quality-*` case output directories.
+
+For the repeatable research/change/test/observe workflow, see `docs/QUALITY_LOOP.md`.
 
 | File | Profile |
 | --- | --- |

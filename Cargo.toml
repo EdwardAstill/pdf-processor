@@ -31,7 +31,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # Second-opinion PDF reader for font names + struct-tree access.
 # Gated behind `pdfium-metadata` feature because it dynamically loads
 # `libpdfium.so`/`pdfium.dll` at runtime and is not needed for the
-# default build. See docs/architecture.md § "pdfium metadata feature".
+# default build. See docs/TESTING.md for runtime verification notes.
 pdfium-render = { version = "0.9", default-features = false, features = ["thread_safe", "pdfium_latest"], optional = true }
 
 [features]

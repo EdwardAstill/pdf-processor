@@ -1,14 +1,14 @@
-# PDF internals — the parts that matter to `cnv`
+# PDF internals — the parts that matter to `pdfp`
 
-This is a primer on how PDF files are actually structured, aimed at contributors who need to understand why `cnv`'s PDF-to-markdown pipeline behaves the way it does — why some things come through cleanly, why others are silently lost, and where the interesting hooks are for future improvements.
+This is a primer on how PDF files are actually structured, aimed at contributors who need to understand why `pdfp`'s PDF-to-markdown pipeline behaves the way it does — why some things come through cleanly, why others are silently lost, and where the interesting hooks are for future improvements.
 
-It is opinionated: it only covers the PDF features that `cnv` touches, avoids, or is blocked by. It is not a replacement for the 1,000-page ISO 32000-2 specification. For the full formal definition, read that. For the working mental model, read this.
+It is opinionated: it only covers the PDF features that `pdfp` touches, avoids, or is blocked by. It is not a replacement for the 1,000-page ISO 32000-2 specification. For the full formal definition, read that. For the working mental model, read this.
 
 ## The 30-second mental model
 
 A PDF file is a tree of versioned, reference-counted **objects**. At the root is a `Catalog`. The catalog points to a `Pages` node, which points to an ordered list of `Page` objects. Each `Page` has a **content stream** — a program in a small stack-based graphics language — that, when interpreted, paints the page. Text is drawn by calling `Tj` / `TJ` operators that place glyphs from a specified font at specified positions. Everything else — fonts, images, forms, overlays — is a dictionary hanging off a page or the catalog.
 
-That is the entire architecture. Fifteen words: *tree of objects, each page is a program, text is drawn as glyphs*. Everything the `cnv` codebase worries about flows from that shape.
+That is the entire architecture. Fifteen words: *tree of objects, each page is a program, text is drawn as glyphs*. Everything the `pdfp` codebase worries about flows from that shape.
 
 ## The object tree
 
@@ -35,7 +35,7 @@ endobj
 
 `1 0 R` is a reference to object 1, generation 0. The catalog, pages node, and page objects form a tree. `/Contents` on a page points to the content-stream object. `/Resources` names the fonts and images the content stream will reference by short alias (`F1`, `Im1`, …).
 
-`cnv` never walks this tree directly. mupdf does it all for us. What matters is that the model has named resources per page — so when mupdf tells us "this glyph was drawn in font F1", we know F1 is a specific, embedded font object whose attributes (family, subtype, encoding, ToUnicode map) are recorded in the PDF. Most of what `cnv` can *eventually* do — font-name-aware heading detection, struct-tree awareness, correct ligature handling — depends on reading those attributes, and the current mupdf Rust wrapper does not expose them.
+`pdfp` never walks this tree directly. mupdf does it all for us. What matters is that the model has named resources per page — so when mupdf tells us "this glyph was drawn in font F1", we know F1 is a specific, embedded font object whose attributes (family, subtype, encoding, ToUnicode map) are recorded in the PDF. Most of what `pdfp` can *eventually* do — font-name-aware heading detection, struct-tree awareness, correct ligature handling — depends on reading those attributes, and the current mupdf Rust wrapper does not expose them.
 
 ## The content stream — a tiny graphics VM
 
@@ -67,9 +67,9 @@ Key graphics operators relevant to text extraction:
 | `Do` | invoke an XObject — this is how embedded images and vector-graphic symbols get pulled in |
 | `m l c re h S f B W n` | path construction / fill / stroke / clip — the vector-graphics operators |
 
-When mupdf extracts text, it interprets the content stream, tracks the transformation matrix and text matrix, and produces a list of glyphs each with an origin (x, y), a size, and a character code. `cnv` consumes that list.
+When mupdf extracts text, it interprets the content stream, tracks the transformation matrix and text matrix, and produces a list of glyphs each with an origin (x, y), a size, and a character code. `pdfp` consumes that list.
 
-The crucial thing to understand is that **there is no concept of "paragraphs" or "lines" in the content stream itself.** A PDF content stream knows only about glyphs at positions. Anything higher-level — word boundaries, line breaks, reading order, columns, tables — is *reconstructed* by the extractor from glyph positions. This is why PDF-to-text is hard and why projects like `cnv` have layers of heuristics (XY-Cut++, font-size classification, etc.) sitting on top of the raw glyph stream.
+The crucial thing to understand is that **there is no concept of "paragraphs" or "lines" in the content stream itself.** A PDF content stream knows only about glyphs at positions. Anything higher-level — word boundaries, line breaks, reading order, columns, tables — is *reconstructed* by the extractor from glyph positions. This is why PDF-to-text is hard and why projects like `pdfp` have layers of heuristics (XY-Cut++, font-size classification, etc.) sitting on top of the raw glyph stream.
 
 ## Coordinate table reconstruction
 
@@ -102,18 +102,18 @@ This is not OCR. It depends on a usable text layer. Scanned or damaged-text tabl
 ## Coordinate systems — two gotchas
 
 1. **PDF page space has its origin at the bottom-left, y growing upward.** That is the classical mathematical convention but the opposite of every screen-based coordinate system you have ever touched. It is also the convention the OpenDataLoader Java implementation of XY-Cut++ uses.
-2. **`cnv` uses top-left origin with y growing downward**, because that is what the mupdf Rust wrapper returns from `page.bounds()` and `block.bounds()`. So somewhere between "PDF native" and "what `cnv` sees", a flip happens.
+2. **`pdfp` uses top-left origin with y growing downward**, because that is what the mupdf Rust wrapper returns from `page.bounds()` and `block.bounds()`. So somewhere between "PDF native" and "what `pdfp` sees", a flip happens.
 
 The flip matters for two specific modules:
 
 - `src/layout/xycut.rs` — the ported Java algorithm uses `topY > bottomY` comparisons; the Rust port inverts them to `y0 < y1`. The module doc-comment has the translation table.
 - Any future direct integration with tagged-PDF tooling (pdfium-render, PDFBox) will return native PDF coordinates; conversions will have to flip.
 
-Rotation (portrait vs landscape) is a property of the page's `/Rotate` key, applied via the initial CTM. mupdf normalises it so extracted glyphs come back in a canonical orientation. `cnv` does not handle rotated-text annotations itself — it relies on mupdf to unwind them.
+Rotation (portrait vs landscape) is a property of the page's `/Rotate` key, applied via the initial CTM. mupdf normalises it so extracted glyphs come back in a canonical orientation. `pdfp` does not handle rotated-text annotations itself — it relies on mupdf to unwind them.
 
 ## Fonts, encodings, and why text sometimes vanishes
 
-This is the single most operationally important section of the document. It explains why `cnv` occasionally returns blank text for an equation, or why one PDF's math is perfect and the next one's has `□` in place of `∫`.
+This is the single most operationally important section of the document. It explains why `pdfp` occasionally returns blank text for an equation, or why one PDF's math is perfect and the next one's has `□` in place of `∫`.
 
 PDF supports four font types:
 
@@ -136,7 +136,7 @@ beginbfchar
 endbfchar
 ```
 
-**If the CMap is missing for a glyph**, the text extractor has to guess — or, more often, give up. In mupdf this manifests as `TextChar::char() -> None`. `cnv`'s extractor filters these out (`src/pdf/extractor.rs:203` and adjacent), meaning glyphs without Unicode mappings are **silently dropped**. No warning, no placeholder — just a hole in the output.
+**If the CMap is missing for a glyph**, the text extractor has to guess — or, more often, give up. In mupdf this manifests as `TextChar::char() -> None`. `pdfp`'s extractor filters these out (`src/pdf/extractor.rs:203` and adjacent), meaning glyphs without Unicode mappings are **silently dropped**. No warning, no placeholder — just a hole in the output.
 
 When does this happen?
 
@@ -148,7 +148,7 @@ What helps? A generic OCR pass can recover some text, but formulas need a formul
 
 ### Ligatures
 
-Many fonts ship glyph forms for common pairs like `fi`, `fl`, `ffi`. When extracted, these should ideally round-trip back to the two or three component Unicode characters. mupdf decomposes ligatures by default. `cnv` does not pass the `PRESERVE_LIGATURES` flag, so we get the decomposed form. Good — search indexes, RAG embeddings, and markdown renderers all expect `fi` not `ﬁ`.
+Many fonts ship glyph forms for common pairs like `fi`, `fl`, `ffi`. When extracted, these should ideally round-trip back to the two or three component Unicode characters. mupdf decomposes ligatures by default. `pdfp` does not pass the `PRESERVE_LIGATURES` flag, so we get the decomposed form. Good — search indexes, RAG embeddings, and markdown renderers all expect `fi` not `ﬁ`.
 
 ### Font name exposure
 
@@ -189,7 +189,7 @@ When present, the structure tree is *the authoritative source of truth* for what
 
 Most PDFs in the wild — especially academic arXiv PDFs — are **not tagged**. Heuristics remain necessary. But when a tagged PDF is encountered, defaulting to font-size classification is leaving free quality on the table.
 
-### Why `cnv` does not read the struct tree today
+### Why `pdfp` does not read the struct tree today
 
 mupdf's Rust wrapper does not surface `/StructTreeRoot`. To access it from Rust we need a different library. The research done for Phase 3 concluded that `pdfium-render` is the right path: it wraps Chromium's PDFium, exposes `FPDF_StructTree_*` bindings, and can be added behind a Cargo feature flag so the default build does not require `libpdfium` at runtime.
 
@@ -243,14 +243,14 @@ This is `--figures embedded`, the default compatibility mode.
 
 Snapshot detection is deliberately heuristic. It improves complete visual figure capture, but it is not a full semantic figure-understanding system. Blank rendered candidates are skipped.
 
-### What `cnv` does not extract
+### What `pdfp` does not extract
 
 - Vector graphics drawn via `m l c S f` — ResNet's architecture diagrams, arXiv's TikZ figures, most flow charts. mupdf classifies these as `TextBlockType::Vector`, and the embedded-image extractor drops `Vector` blocks explicitly. Snapshot mode can still capture them when the detector finds the surrounding figure region.
 - Form fields (AcroForm). These are interactive UI elements laid over the page, drawn by the viewer not the content stream.
 - Annotations — highlights, comments, stamps — live in `/Annots` on the page dict. We do not read them.
 - Bookmarks / outlines live in `/Outlines` under the catalog. Not read.
 
-## The full list of what `cnv` touches and what it skips
+## The full list of what `pdfp` touches and what it skips
 
 ### Touched
 
