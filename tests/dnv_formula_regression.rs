@@ -16,7 +16,7 @@ mod dnv_formula_regression {
         let pages = PdfExtractor::extract_pages(std::path::Path::new(DNV_PDF))
             .expect("failed to extract DNV PDF pages");
         pages.into_iter().find(|p| p.page_num == page_num)
-            .expect(&format!("page {} not found in DNV PDF", page_num))
+            .unwrap_or_else(|| panic!("page {page_num} not found in DNV PDF"))
     }
 
     #[test]
