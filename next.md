@@ -21,6 +21,10 @@ Counts from the latest run:
 - No heuristic `$$` blocks injected in `--formulas auto`.
 - Candidate split: 1090 `local-candidate`, 2533 `needs-review`.
 
+Note: this audit snapshot predates the 2026-05-11 change that promotes
+high-confidence `--formulas auto` candidates into display math. For DNV-style
+standards review without heuristic math rendering, use `--conservative`.
+
 ## What Worked
 
 Some real formula regions are detected and cropped cleanly.
@@ -93,7 +97,8 @@ The current local formula feature is doing the right first-stage job:
 
 - It finds many formula-like regions.
 - It gives reviewable crops.
-- It avoids polluting Markdown in `--formulas auto`.
+- It can now promote high-confidence `--formulas auto` candidates into
+  Markdown display math.
 
 But it is not enough for standards processing because:
 
@@ -179,7 +184,7 @@ Suggested implementation sequence:
 
 ## Acceptance Criteria
 
-- `pdfp convert DNV-ST-N001 ... --debug-formulas --formulas auto` still writes
+- `pdfp convert DNV-ST-N001 ... --conservative --debug-formulas` still writes
   audit JSON and crops without injecting heuristic `$$` into Markdown.
 - Page 670 has at least one true formula crop for the visible equation.
 - Page 597 reference entries are no longer counted as formula candidates.

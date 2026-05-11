@@ -3,6 +3,9 @@
 Identified from formula-fixing pass on 10 literature markdowns (thesis project, May 2026).
 All four changes are in `src/pipeline.rs` and `src/pdf/text_cleanup.rs`.
 
+Implemented on 2026-05-11. See `src/pipeline.rs`, `src/pdf/text_cleanup.rs`,
+and `tests/formulas.rs`.
+
 ---
 
 ## A. Strip equation number from source text and inject `\tag{N}`

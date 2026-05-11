@@ -30,7 +30,8 @@ pub(super) fn cleanup_extracted_text(input: &str) -> String {
             | '\u{2066}'
             | '\u{2067}'
             | '\u{2068}'
-            | '\u{2069}' => {}
+            | '\u{2069}'
+            | '\u{0305}' => {}
 
             // Normalize a small, safe subset of spacing and hyphen variants.
             '\u{00A0}' | '\u{202F}' => cleaned.push(' '),
@@ -128,6 +129,12 @@ mod tests {
         let input = "A\u{200B}B\u{2060}C\u{202A}D\u{202C}E";
         let cleaned = cleanup_extracted_text(input);
         assert_eq!(cleaned, "ABCDE");
+    }
+
+    #[test]
+    fn strips_pdf_sqrt_combining_overline_artifacts() {
+        let cleaned = cleanup_extracted_text("√\u{0305}\u{0305}x");
+        assert_eq!(cleaned, "√x");
     }
 
     #[test]

@@ -147,7 +147,7 @@ pdfp convert standard.pdf -o out/ --conservative --debug-tables --debug-formulas
 
 - figures: embedded assets only, no rendered snapshot candidates
 - tables: fixed-width `layout` blocks instead of inferred Markdown tables
-- formulas: `auto` audit mode, no local heuristic `$$` rendering
+- formulas: audit mode, no local heuristic `$$` rendering
 
 Use this mode when omissions or wrong reconstructions are more costly than having a review marker or a visually preserved fallback.
 
@@ -174,7 +174,7 @@ OCR is a separate concern. If the page is a scan with no usable text layer, use 
 Formula modes:
 
 ```sh
-# Default: detect formula candidates and warn on gaps without injecting heuristic math.
+# Default: detect formula candidates and render high-confidence candidates as display math.
 pdfp convert standard.pdf -o out/ --formulas auto
 
 # Force local formula candidate rendering for inspection.
@@ -187,7 +187,7 @@ pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 pdfp convert standard.pdf -o out/ --formulas off
 ```
 
-PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode is therefore an audit path: it detects likely display-equation regions and writes a formula coverage ledger when `--debug-formulas` is enabled, but it does not inject heuristic math into the Markdown. `--formulas local` is available for inspection only and does not guarantee perfect LaTeX. `--debug-formulas` writes page JSON and `pageN_formulaM.png` crops under `debug/formulas/`. Use the crops for standard-processing review or for a future formula sidecar such as UniMERNet/PDF-Extract-Kit. For recovery today, run a Docling backend and use `--hybrid docling --formulas hybrid`.
+PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--formulas local` is available for inspection and renders all local candidates, but it does not guarantee perfect LaTeX. `--debug-formulas` writes page JSON and `pageN_formulaM.png` crops under `debug/formulas/`. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. Use the crops for review or for a future formula sidecar such as UniMERNet/PDF-Extract-Kit. For recovery today, run a Docling backend and use `--hybrid docling --formulas hybrid`.
 
 ## Local OCR
 

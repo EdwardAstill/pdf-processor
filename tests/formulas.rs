@@ -115,7 +115,7 @@ fn debug_formulas_writes_crop_for_candidate_page() {
 }
 
 #[test]
-fn formulas_auto_without_hybrid_audits_without_injecting_heuristic_math() {
+fn formulas_auto_promotes_high_confidence_candidates_to_display_math() {
     let Some(pdf) = fixture("math-number-theory.pdf") else {
         return;
     };
@@ -152,8 +152,8 @@ fn formulas_auto_without_hybrid_audits_without_injecting_heuristic_math() {
         "local markdown should still be written"
     );
     assert!(
-        !md.contains("$$"),
-        "auto mode should audit formula candidates without rendering heuristic formula blocks"
+        md.contains("$$"),
+        "auto mode should render high-confidence formula candidates"
     );
 }
 

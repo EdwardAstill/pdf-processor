@@ -179,8 +179,14 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
     let formula_candidate_count = formula_candidates.len();
     let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
+    let formula_render_mode = if ctx.args.options.conservative {
+        FormulaMode::Off
+    } else {
+        formula_mode
+    };
     let formula_blocks =
-        formula_candidates_to_blocks(raw_page.page_num, formula_candidates, formula_mode);
+        formula_candidates_to_blocks(raw_page.page_num, formula_candidates, formula_render_mode);
+    let text_classified = suppress_text_covered_by_formulas(text_classified, &formula_blocks);
 
     let figure_candidates = if ctx.extract_snapshot_figures {
         detect_figure_candidates(
@@ -339,19 +345,20 @@ fn formula_candidates_to_blocks(
     candidates: Vec<FormulaCandidate>,
     mode: cli::FormulaMode,
 ) -> Vec<Block> {
-    if !matches!(mode, cli::FormulaMode::Local | cli::FormulaMode::Hybrid) {
+    if matches!(mode, cli::FormulaMode::Off) {
         return Vec::new();
     }
 
     candidates
         .into_iter()
         .enumerate()
-        .map(|(idx, candidate)| {
-            let latex = candidate
-                .latex
-                .clone()
-                .unwrap_or_else(|| candidate.source_text.clone());
-            Block {
+        .filter_map(|(idx, candidate)| {
+            if !should_emit_formula_candidate(&candidate, mode) {
+                return None;
+            }
+
+            let latex = build_formula_latex(&candidate);
+            Some(Block {
                 id: 3_000_000 + idx,
                 bbox: candidate.bbox,
                 text: candidate.source_text,
@@ -363,9 +370,90 @@ fn formula_candidates_to_blocks(
                 font_name: "formula-candidate".to_string(),
                 page_num,
                 reading_order: 0,
-            }
+            })
         })
         .collect()
+}
+
+fn should_emit_formula_candidate(candidate: &FormulaCandidate, mode: cli::FormulaMode) -> bool {
+    match mode {
+        cli::FormulaMode::Auto => candidate.confidence >= 70,
+        cli::FormulaMode::Local | cli::FormulaMode::Hybrid => true,
+        cli::FormulaMode::Off => false,
+    }
+}
+
+fn build_formula_latex(candidate: &FormulaCandidate) -> String {
+    candidate.latex.clone().unwrap_or_else(|| {
+        let mut text = candidate.source_text.clone();
+        if let Some(eq_num) = &candidate.equation_number {
+            if let Some(stripped) = text.trim_end().strip_suffix(eq_num.as_str()) {
+                let tag_inner = eq_num.trim_matches(|c| c == '(' || c == ')');
+                text = format!("{} \\tag{{{}}}", stripped.trim_end(), tag_inner);
+            }
+        }
+        unicode_to_latex(&text)
+    })
+}
+
+fn unicode_to_latex(s: &str) -> String {
+    s.chars()
+        .fold(String::with_capacity(s.len() + 16), |mut out, c| {
+            match c {
+                'α' => out.push_str("\\alpha "),
+                'β' => out.push_str("\\beta "),
+                'γ' => out.push_str("\\gamma "),
+                'δ' => out.push_str("\\delta "),
+                'ε' => out.push_str("\\varepsilon "),
+                'ζ' => out.push_str("\\zeta "),
+                'η' => out.push_str("\\eta "),
+                'θ' => out.push_str("\\theta "),
+                'λ' => out.push_str("\\lambda "),
+                'μ' => out.push_str("\\mu "),
+                'ν' => out.push_str("\\nu "),
+                'ξ' => out.push_str("\\xi "),
+                'π' => out.push_str("\\pi "),
+                'ρ' => out.push_str("\\rho "),
+                'σ' => out.push_str("\\sigma "),
+                'τ' => out.push_str("\\tau "),
+                'φ' => out.push_str("\\phi "),
+                'χ' => out.push_str("\\chi "),
+                'ψ' => out.push_str("\\psi "),
+                'ω' => out.push_str("\\omega "),
+                'Γ' => out.push_str("\\Gamma "),
+                'Δ' | '∆' => out.push_str("\\Delta "),
+                'Θ' => out.push_str("\\Theta "),
+                'Λ' => out.push_str("\\Lambda "),
+                'Π' => out.push_str("\\Pi "),
+                'Σ' => out.push_str("\\Sigma "),
+                'Φ' => out.push_str("\\Phi "),
+                'Ψ' => out.push_str("\\Psi "),
+                'Ω' => out.push_str("\\Omega "),
+                '∑' => out.push_str("\\sum "),
+                '∏' => out.push_str("\\prod "),
+                '∫' => out.push_str("\\int "),
+                '∂' => out.push_str("\\partial "),
+                '∞' => out.push_str("\\infty "),
+                '√' => out.push_str("\\sqrt{} "),
+                '±' => out.push_str("\\pm "),
+                '∓' => out.push_str("\\mp "),
+                '×' => out.push_str("\\times "),
+                '÷' => out.push_str("\\div "),
+                '≤' => out.push_str("\\leq "),
+                '≥' => out.push_str("\\geq "),
+                '≠' => out.push_str("\\neq "),
+                '≈' => out.push_str("\\approx "),
+                '∝' => out.push_str("\\propto "),
+                '∈' => out.push_str("\\in "),
+                '∉' => out.push_str("\\notin "),
+                '⊂' => out.push_str("\\subset "),
+                '∪' => out.push_str("\\cup "),
+                '∩' => out.push_str("\\cap "),
+                '−' => out.push('-'),
+                _ => out.push(c),
+            }
+            out
+        })
 }
 
 fn suppress_text_covered_by_tables(
@@ -382,6 +470,22 @@ fn suppress_text_covered_by_tables(
             !candidates.iter().any(|candidate| {
                 candidate.source_block_ids.contains(&block.id)
                     || bbox_overlap_ratio(block.bbox, candidate.table.bbox) > 0.55
+            })
+        })
+        .collect()
+}
+
+fn suppress_text_covered_by_formulas(blocks: Vec<Block>, candidates: &[Block]) -> Vec<Block> {
+    if candidates.is_empty() {
+        return blocks;
+    }
+
+    blocks
+        .into_iter()
+        .filter(|block| {
+            !candidates.iter().any(|candidate| {
+                matches!(candidate.kind, BlockKind::Formula { .. })
+                    && bbox_overlap_ratio(block.bbox, candidate.bbox) > 0.55
             })
         })
         .collect()
@@ -742,5 +846,74 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].source_text, "F = m a");
         assert_eq!(filtered[0].formula_index, 0);
+    }
+
+    fn formula_candidate(source_text: &str, confidence: u8) -> FormulaCandidate {
+        FormulaCandidate {
+            page_num: 0,
+            formula_index: 0,
+            bbox: Bbox::new(120.0, 140.0, 500.0, 162.0),
+            source_text: source_text.into(),
+            equation_number: None,
+            confidence,
+            status: FormulaStatus::LocalCandidate,
+            backend: None,
+            latex: None,
+            reason: "test".into(),
+            crop_path: None,
+        }
+    }
+
+    #[test]
+    fn auto_mode_promotes_only_high_confidence_formula_candidates() {
+        let high = formula_candidate("E = mc^2", 70);
+        let low = formula_candidate("a + b", 69);
+
+        let blocks = formula_candidates_to_blocks(0, vec![high, low], FormulaMode::Auto);
+
+        assert_eq!(blocks.len(), 1);
+        assert!(matches!(blocks[0].kind, BlockKind::Formula { .. }));
+        assert_eq!(blocks[0].text, "E = mc^2");
+    }
+
+    #[test]
+    fn formula_latex_strips_equation_number_and_adds_tag() {
+        let mut candidate = formula_candidate("E = mc^2 (12)", 88);
+        candidate.equation_number = Some("(12)".into());
+
+        assert_eq!(build_formula_latex(&candidate), "E = mc^2 \\tag{12}");
+    }
+
+    #[test]
+    fn formula_latex_normalizes_unicode_including_theta() {
+        let candidate = formula_candidate("σ = √x + θ − Δ", 88);
+
+        assert_eq!(
+            build_formula_latex(&candidate),
+            "\\sigma  = \\sqrt{} x + \\theta  - \\Delta "
+        );
+    }
+
+    #[test]
+    fn formula_blocks_suppress_overlapping_text_blocks() {
+        let formula = formula_candidates_to_blocks(
+            0,
+            vec![formula_candidate("F = ma", 88)],
+            FormulaMode::Auto,
+        );
+        let text = Block {
+            id: 42,
+            bbox: Bbox::new(121.0, 141.0, 499.0, 161.0),
+            text: "F = ma".into(),
+            kind: BlockKind::Paragraph,
+            font_size: 10.0,
+            font_name: String::new(),
+            page_num: 0,
+            reading_order: 0,
+        };
+
+        let filtered = suppress_text_covered_by_formulas(vec![text], &formula);
+
+        assert!(filtered.is_empty());
     }
 }
