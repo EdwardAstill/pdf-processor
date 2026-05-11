@@ -1,77 +1,89 @@
 # PDF-to-Markdown Wiki
 
-This wiki is a working knowledge base for building and improving `cnv`.
+Working knowledge base for building and improving `pdfp`. Covers PDF internals, algorithms, tools, content structures, pipeline design, and the external project landscape.
 
-It covers:
+Scoped to local, code-first PDF-to-Markdown conversion. Not a general PDF encyclopedia.
 
-- how PDFs are structured
-- how text, layout, tables, images, and scans should be handled
-- how to turn those pieces into useful Markdown
-- how to extract structured information from PDFs after conversion
-- what strong open-source projects are doing well
-- what `cnv` should build next
+## Sections
 
-This is not a general-purpose PDF encyclopedia. It is scoped to the practical problems that matter for local, code-first PDF-to-Markdown conversion.
+### [algorithms/](algorithms/algorithms.md) — How it works
 
-## Start here
+Core techniques used at each pipeline stage.
 
-- [Pipeline Overview](pipeline-overview.md)
-- [Text Extraction](text-extraction.md)
-- [Layout and Reading Order](layout-and-reading-order.md)
-- [Tables, Forms, and Financial Documents](tables-forms-and-financials.md)
-- [Scans and OCR](scans-and-ocr.md)
-- [Markdown Rendering](markdown-rendering.md)
-- [Figure Snapshot Extraction](figure-snapshot-extraction.md)
-- [Information Extraction](information-extraction.md)
-- [Evaluation and Benchmarks](evaluation-and-benchmarks.md)
-- [Reference Implementations](reference-implementations.md)
-- [Project Comparison Matrix](project-comparison-matrix.md)
-- [OpenDataLoader Ecosystem](opendataloader-ecosystem.md)
-- [Improvement Opportunities](improvement-opportunities.md)
+- [Reading Order and Layout](algorithms/reading-order.md)
+- [Table Detection and Structure](algorithms/table-detection.md)
+- [Formula Detection and False Positives](algorithms/formula-detection.md)
+- [OCR](algorithms/ocr.md)
+- [Heading Classification](algorithms/heading-classification.md)
+- [Page Triage and Classification](algorithms/page-triage.md)
 
-## Existing repo documents worth reading
+### [tools/](tools/tools.md) — What to use
 
-- [Top-level README](../README.md) for install, CLI usage, and current scope
-- [PDF internals](../docs/pdf-internals.md) for low-level object/content-stream details
-- [Testing guide](../docs/TESTING.md) for the current verification matrix
-- [Example assessment](../example/ASSESSMENT.md) for current quality across the example corpus
-- [Fix plan](../example/FIX_PLAN.md) for the current implementation roadmap
-- [Research notes](../example/RESEARCH_NOTES.md) for GitHub-based implementation takeaways
+Libraries, frameworks, models, and Rust crates.
 
-## Current design position
+- [PDF Engines](tools/pdf-engines.md) — MuPDF, pdfminer.six, pdfium, lopdf
+- [Extraction Libraries](tools/extraction-libs.md) — pdfplumber, Camelot, tabula, img2table, OCR engines
+- [Frameworks](tools/frameworks.md) — Docling, Marker, MinerU, PDF-Extract-Kit, OpenDataLoader
+- [Layout Models](tools/layout-models.md) — DocLayout-YOLO, TATR, Surya
+- [Equation OCR Models](tools/equation-ocr-models.md) — UniMERNet, RapidLaTeX-OCR, Texo, Pix2Tex
+- [Table Models](tools/table-models.md) — StructEqTable, CascadeTabNet, LGPMA
+- [Rust Crates](tools/rust-crates.md) — mupdf, ort, lopdf, quick-xml, resvg
 
-`cnv` is intentionally:
+### [structures/](structures/) — Content types
 
-- PDF-first
-- Markdown-first
-- local-first
-- code-first
+How each structural element is encoded in PDFs and rendered in Markdown.
 
-That means:
+- [Tables](structures/tables.md) — generic, financial, forms
+- [Equations](structures/equations.md) — detection, false positive suppression, OCR sidecars
+- [Headings](structures/headings.md) — font-size tiering, bold detection, struct-tree, TOC
+- [Lists](structures/lists.md) — ordered, unordered, nested, bullet normalisation
+- [Inline Formatting](structures/inline-formatting.md) — bold, italic, code spans, underline
 
-- the core converter should not depend on hosted APIs
-- deterministic extraction and heuristics come first
-- OCR is acceptable as a local preprocessing step for scans
-- models can inform research and benchmarking, but should not silently become the default conversion path
+### [topics/](topics/) — Pipeline concepts
 
-## Current biggest gaps
+Cross-cutting concerns and pipeline design.
 
-Based on the example corpus:
+- [Pipeline Overview](topics/pipeline-overview.md)
+- [Text Extraction](topics/text-extraction.md)
+- [Layout and Reading Order](topics/layout-and-reading-order.md)
+- [Scans and OCR](topics/scans-and-ocr.md)
+- [Markdown Rendering](topics/markdown-rendering.md)
+- [Figure Snapshot Extraction](topics/figure-snapshot-extraction.md)
+- [Information Extraction](topics/information-extraction.md)
+- [Evaluation and Benchmarks](topics/evaluation-and-benchmarks.md)
+- [Technical Standards Documents](topics/technical-standards-documents.md)
 
-1. financial statement reconstruction
-2. scan-heavy PDFs without a local OCR path
-3. magazine and brochure layout grouping
-4. business header and key-value normalization
-5. broader scholarly first-page generalization
+### [projects/](projects/) — External landscape
 
-If you only read three pages in this wiki, read:
+What other projects are doing and what to borrow.
 
-1. [Pipeline Overview](pipeline-overview.md)
-2. [Tables, Forms, and Financial Documents](tables-forms-and-financials.md)
-3. [Scans and OCR](scans-and-ocr.md)
+- [Project Comparison Matrix](projects/project-comparison-matrix.md)
+- [OpenDataLoader Ecosystem](projects/opendataloader-ecosystem.md)
+- [Reference Implementations](projects/reference-implementations.md)
+- [Improvement Opportunities](projects/improvement-opportunities.md)
 
-If you want to understand the external landscape first, read:
+---
 
-1. [Project Comparison Matrix](project-comparison-matrix.md)
-2. [OpenDataLoader Ecosystem](opendataloader-ecosystem.md)
-3. [Improvement Opportunities](improvement-opportunities.md)
+## Current biggest gaps (2026-05)
+
+1. Table detection for engineering standards — borderless tables, symbol-heavy rows, ~1% recall on DNV-ST-N001
+2. Formula OCR sidecar — LaTeX reconstruction not yet implemented; only review markers emitted
+3. Formula false positives — decorative rules and logo bars triggering visual detector
+4. Watermark/footer suppression — "Downloaded by…" contaminating table cells
+5. Inline formatting — bold/italic not extracted in default build (needs pdfium-metadata)
+6. Financial statement reconstruction — row structure loss in complex accounting tables
+
+## Design position
+
+`pdfp` is intentionally:
+
+- PDF-first and local-first
+- deterministic extraction before model-based recovery
+- Markdown-first output
+- code-first (no silent hosted-API dependencies)
+
+## Related repo docs
+
+- [README.md](../README.md) — install, CLI usage, architecture
+- [docs/pdf-internals.md](../docs/pdf-internals.md) — PDF object model, content streams, fonts
+- [docs/TESTING.md](../docs/TESTING.md) — verification matrix

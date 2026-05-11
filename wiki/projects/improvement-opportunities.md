@@ -64,25 +64,48 @@ The standing example set suggests this practical mapping:
 - `PDFUA-Ref-2-02_Invoice.pdf`
   needs better business header and address normalization
 
-## The Best Next Build Order for `cnv`
+## Current Status (2026-05)
 
-The strongest next sequence is:
+Several items have moved since this roadmap was first written:
 
-1. tagged PDF / structure-tree reader
-2. local OCR preprocessing path
-3. numeric-heavy table engine
-4. geometry-aware table detection
-5. cross-page table continuation
-6. debug artifact mode
-7. encoding-health checks and selective OCR fallback
-8. hidden-text filtering
-9. broader document subtype detection
-10. table-specific evaluation fixtures
+- **Debug artifact mode** (P8): implemented. `--debug-formulas` and
+  `--debug-tables` emit crops and JSON manifests under `debug/`.
+- **Visual formula detection**: implemented (2026-05-11). Catches visible
+  equations the word-based detector misses (DNV page 670 style). Opt-in via
+  `--debug-formulas`.
+- **Formula false positive suppression**: partial. Table suppression in word
+  path works; visual path still gets decorative-rule and logo-bar FPs.
+
+Remaining active gaps for technical standards work:
+
+1. Table detection for standards (borderless, symbol-heavy rows) — currently
+   ~1% recall on DNV. See [Technical Standards Documents](technical-standards-documents.md).
+2. Formula OCR sidecar — no LaTeX reconstruction yet, only review markers.
+   See [Formula Detection and OCR](formula-detection-and-ocr.md).
+3. Watermark/footer suppression ("Downloaded by…" noise in standards).
+4. Formula false-positive suppression for decorative rules and logo bars.
+
+## The Best Next Build Order
+
+The original P0–P10 sequence remains valid. Updated for current state:
+
+1. ~~debug artifact mode~~ ✓ done
+2. ~~visual formula detection~~ ✓ done
+3. **Formula false-positive suppression** — decorative-rule filter, furniture
+   mask pre-pass, table-first suppression
+4. **Geometry-aware table detection for standards** — explicit-line extraction,
+   borderless table inference, furniture-bbox exclusion
+5. Formula OCR sidecar — RapidLaTeX-OCR or UniMERNet via ONNX/Python
+6. Tagged PDF / structure-tree reader (P0 from original)
+7. Local OCR preprocessing path (P1)
+8. Numeric-heavy / financial table engine (P2)
+9. Cross-page table continuation (P4)
+10. Encoding-health checks (P6)
 
 ## Sources for the Improvement Opportunities
 
 - [Project comparison matrix](project-comparison-matrix.md)
 - [OpenDataLoader ecosystem](opendataloader-ecosystem.md)
 - [Reference implementations](reference-implementations.md)
-- [Research notes](../example/RESEARCH_NOTES.md)
-- [Current fix plan](../example/FIX_PLAN.md)
+- [Formula detection and OCR](formula-detection-and-ocr.md)
+- [Technical standards documents](technical-standards-documents.md)

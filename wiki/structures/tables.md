@@ -13,9 +13,13 @@ When structure is lost:
 - field labels detach from values
 - information extraction gets much worse
 
-## The three distinct problem classes
+## Four distinct problem classes
 
 These should not be treated as the same problem.
+
+Engineering / technical standards (ISO, DNV, IEC, ASTM) are a fourth class
+with unique failure modes. See [Technical Standards Documents](technical-standards-documents.md)
+for that treatment. This page covers the other three.
 
 ### 1. Generic tables
 
