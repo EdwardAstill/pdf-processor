@@ -44,11 +44,12 @@ pub fn detect_formula_candidates(raw_page: &RawPage, excluded_bboxes: &[Bbox]) -
         return Vec::new();
     }
 
-    if is_reference_section(raw_page) {
+    let mut lines = group_words_into_lines(&raw_page.words);
+
+    if is_reference_section(&lines) {
         return Vec::new();
     }
 
-    let mut lines = group_words_into_lines(&raw_page.words);
     lines.sort_by(|a, b| {
         a.bbox
             .y0
@@ -329,15 +330,18 @@ fn is_reference_line(text: &str) -> bool {
             }
         }
     }
-    // [N] or (N) pattern
+    // [N] or (N) pattern — only matches when followed by more content.
+    // "(3.1)" alone is an equation label; "[1] Author..." is a reference.
     let first = t.chars().next().unwrap_or(' ');
     if first == '[' || first == '(' {
         let close = if first == '[' { ']' } else { ')' };
         if let Some(i) = t.find(close) {
             let inner = &t[1..i];
+            let after = t[i + 1..].trim(); // text after the closing bracket
             if !inner.is_empty()
                 && inner.len() <= 4
                 && inner.chars().all(|c| c.is_ascii_digit())
+                && !after.is_empty() // require following content
             {
                 return true;
             }
@@ -349,16 +353,13 @@ fn is_reference_line(text: &str) -> bool {
 /// Returns true if this page looks like a reference/bibliography section.
 /// Two signals: any spatially-grouped line whose full text is a reference
 /// heading, OR >40% of lines start with a reference marker.
-fn is_reference_section(raw_page: &RawPage) -> bool {
-    if raw_page.words.is_empty() {
-        return false;
-    }
-    let lines = group_words_into_lines(&raw_page.words);
+/// Accepts pre-computed lines to avoid a redundant `group_words_into_lines` call.
+fn is_reference_section(lines: &[FormulaLine]) -> bool {
     if lines.is_empty() {
         return false;
     }
     // Fast path: any line whose full text is a reference heading.
-    for line in &lines {
+    for line in lines {
         let t = line.text.trim();
         if matches!(t, "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY") {
             return true;

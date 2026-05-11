@@ -218,9 +218,9 @@ fn band_to_bbox(band: &DarkBand, scale: f32, page_bbox: Bbox) -> Bbox {
 }
 
 /// Minimum band height in pixels to qualify as a formula region.
-/// At RENDER_DPI=72 this equals 4pt (~1.4mm). Body text glyphs are 8–14px; decorative rules 1–3px.
-/// Must be updated if RENDER_DPI changes, since this constant is in pixel space not PDF-point space.
-const MIN_BAND_HEIGHT_PX: i32 = 4;
+/// Derived from RENDER_DPI so the threshold scales if resolution changes.
+/// Targets ~4pt (~1.4mm) at any DPI. Body text glyphs are 8–14px; decorative rules 1–3px.
+const MIN_BAND_HEIGHT_PX: i32 = 4 * RENDER_DPI as i32 / 72;
 
 fn band_has_sufficient_height(band: &DarkBand) -> bool {
     (band.y1 - band.y0) >= MIN_BAND_HEIGHT_PX
