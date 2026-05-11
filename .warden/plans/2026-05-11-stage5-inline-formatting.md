@@ -6,6 +6,8 @@
 
 **Architecture:** Two new boolean fields (`bold`, `italic`) and one computed field (`monospace`, derived from `font_name`) are added to `Block`. The classifier sets `bold`/`italic` from `PageMetadata` when available. The renderer wraps `BlockKind::Paragraph` and `BlockKind::ListItem` text in the appropriate Markdown markers. Single-line blocks whose `font_name` contains a monospace family name are promoted to `BlockKind::CodeBlock` in the classifier. Without pdfium-metadata the fields default to `false` and the renderer emits plain text unchanged — no regression on the default build.
 
+**Stage 4 adjustment:** Refresh all sample code against the current `RawTextBlock`, `RawPage`, `Page`, and `Classifier` APIs before implementation. Stage 4 added geometry-table, formula, figure, and media block constructors in `pipeline.rs`; those constructors also need explicit `bold: false, italic: false` defaults when `Block` grows new fields.
+
 **Tech Stack:** Rust, pdfium-render (optional feature `pdfium-metadata`), cargo test
 
 **Recommended Skills:** test-driven-development, git
@@ -29,6 +31,20 @@
   Source: `src/document/types.rs` and `src/layout/classifier.rs` — confirmed in session
   Check: `grep -n "pub bold\|pub italic" src/document/types.rs`
   If false: skip Task 1 (fields already exist).
+  Owner: Task 1
+
+- `A2b` — Stage 4 added additional `Block` construction sites in `src/pipeline.rs` for geometry-backed coordinate tables, formulas, formula-review comments, embedded images, and figure snapshots.
+  Type: repo-state
+  Source: Stage 4 implementation
+  Check: `grep -rn "Block {" src/ | grep -v "BlockKind" | head -80`
+  If false: update only the construction sites that exist.
+  Owner: Task 1
+
+- `A2c` — The sample tests in this draft may not match the current concrete struct fields. Treat them as behavioral examples, not copy/paste code.
+  Type: repo-state
+  Source: Stage 4 review of current `RawTextBlock`, `RawPage`, `Page`, and `Classifier` APIs
+  Check: `sed -n '1,220p' src/document/types.rs && grep -n "classify_page_with_metadata" src/layout/classifier.rs`
+  If false: use the exact current API in tests.
   Owner: Task 1
 
 - `A3` — The renderer emits `BlockKind::Paragraph` text as a plain string with no surrounding markup (other than a trailing newline).

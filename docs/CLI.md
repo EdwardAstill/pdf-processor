@@ -168,7 +168,7 @@ pdfp convert catalogue.pdf -o out/ --tables layout
 pdfp convert catalogue.pdf -o out/ --tables off
 ```
 
-`pdfp` reconstructs born-digital tables from MuPDF word coordinates. This works best when the PDF already has a usable text layer, such as product catalogues with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes detected table bboxes, rows, confidence, and render mode under `debug/tables/`.
+`pdfp` reconstructs born-digital tables from MuPDF word coordinates plus rendered rule-line geometry. This works best when the PDF already has a usable text layer, such as product catalogues and standards with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes `table_region` bboxes, rows, confidence, and render mode under `debug/tables/`.
 
 OCR is a separate concern. If the page is a scan with no usable text layer, use `--ocr auto` or `--ocr force` before expecting table reconstruction to work.
 

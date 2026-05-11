@@ -4,9 +4,9 @@
 
 **Goal:** Replace the Python subprocess sidecar (Stage 3) with a native Rust ONNX inference path using the `ort` crate and a downloaded RapidLaTeX-OCR encoder/decoder model, eliminating the Python runtime dependency.
 
-**Architecture:** A new Cargo feature `onnx-ocr` gates all ONNX code. Behind the feature, `src/formula/ocr_onnx.rs` provides `OnnxFormulaSidecar`, implementing the `FormulaSidecar` trait from Stage 3. The sidecar loads two ONNX sessions at startup (encoder and decoder), preprocesses a formula crop PNG to a fixed 192×672 tensor, runs the encoder, then greedily decodes token IDs using the decoder session until EOS or a 512-token limit. A bundled vocabulary file maps token IDs to LaTeX strings. The existing `SubprocessSidecar` (Stage 3) remains available behind `--formula-sidecar cmd:<command>`; the ONNX path is enabled with `--formula-sidecar onnx:<model-dir>`. Without any `--formula-sidecar` flag, formula crops continue emitting `<!-- formula-review -->` markers.
+**Architecture:** A new Cargo feature `onnx-ocr` gates all ONNX code. Behind the feature, `src/formula/ocr_onnx.rs` provides `OnnxFormulaSidecar`, implementing the `FormulaSidecar` trait from Stage 3. The sidecar loads two ONNX sessions at startup (encoder and decoder), preprocesses a formula crop PNG to a fixed 192×672 tensor, runs the encoder, then greedily decodes token IDs using the decoder session until EOS or a 512-token limit. A bundled vocabulary file maps token IDs to LaTeX strings. The existing `SubprocessSidecar` (Stage 3) remains available. `--formula-sidecar onnx:<model-dir>` selects ONNX, `--formula-sidecar cmd:<command>` selects an explicit subprocess, and the current plain `--formula-sidecar <command>` behavior remains supported for compatibility. Without any `--formula-sidecar` flag, formula crops continue emitting `<!-- formula-review -->` markers.
 
-**Tech Stack:** Rust, `ort` 2.0 (ONNX Runtime), `image` crate (already used in visual.rs), `ndarray` (ort dependency), RapidLaTeX-OCR ONNX models (downloaded separately)
+**Tech Stack:** Rust, `ort` 2.0 (ONNX Runtime), `image` crate, `ndarray` (ort dependency), RapidLaTeX-OCR ONNX models (downloaded separately)
 
 **Recommended Skills:** test-driven-development, git
 
@@ -45,12 +45,19 @@
   If false: use `ort` with `load-dynamic` feature and document the `ORT_DYLIB_PATH` env var.
   Owner: Task 1
 
-- `A5` — The `image` crate is already a dependency (used in `src/formula/visual.rs`).
+- `A5` — The `image` crate is not currently a dependency in `Cargo.toml`; Stage 6 must add it for preprocessing tests and ONNX crop loading.
   Type: repo-state
-  Source: `Cargo.toml` — visible in session
+  Source: Stage 4 follow-up check of `Cargo.toml`
   Check: `grep "^image" Cargo.toml`
-  If false: add `image = "0.25"` to `[dependencies]`.
+  If false: add `image = { version = "0.25", optional = true }` and include it in `onnx-ocr`; if non-feature tests need it, add it as a dev-dependency too.
   Owner: Task 2
+
+- `A6` — Existing Stage 3 users may already pass a bare executable path/string to `--formula-sidecar`.
+  Type: policy
+  Source: Stage 3 implementation and tests
+  Check: `grep -n "formula_sidecar" src/cli.rs src/pipeline.rs tests/formula_ocr.rs`
+  If false: only support the explicit `cmd:` and `onnx:` prefixes.
+  Owner: Task 4
 
 ---
 
@@ -106,12 +113,13 @@ In `[dependencies]`, add:
 ```toml
 ort = { version = "2.0", features = ["load-dynamic"], optional = true }
 ndarray = { version = "0.16", optional = true }
+image = { version = "0.25", optional = true }
 ```
 
 In `[features]`, add:
 
 ```toml
-onnx-ocr = ["dep:ort", "dep:ndarray"]
+onnx-ocr = ["dep:ort", "dep:ndarray", "dep:image"]
 ```
 
 In `src/formula/mod.rs`, add:

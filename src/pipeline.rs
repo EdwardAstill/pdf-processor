@@ -6,7 +6,9 @@ use anyhow::Context;
 
 use crate::batch;
 use crate::cli::{self, ConvertArgs, FigureMode, FormulaMode, TableMode};
-use crate::document::types::{Bbox, Block, BlockKind, Document, ImageRef, Page, RawPage};
+use crate::document::types::{
+    Bbox, Block, BlockKind, DetectedTable, Document, ImageRef, Page, RawPage, TableRender,
+};
 use crate::figure::{
     detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
 };
@@ -19,8 +21,10 @@ use crate::formula::{
 use crate::hybrid;
 use crate::layout::{
     classifier::Classifier,
+    drawing_ops::extract_lines,
     furniture::detect_furniture_bboxes,
     table::{detect_coordinate_tables, TableCandidate},
+    table_detector::{detect_table_region_candidates, GeometryTableRegion},
     xycut::{assign_reading_order, build_xycut_order, XyCutConfig},
 };
 use crate::ocr;
@@ -93,6 +97,7 @@ fn build_document_from_raw(
         .formula_sidecar
         .as_ref()
         .map(|command| SubprocessSidecar::new(command.clone()));
+    let table_geometry_doc = mupdf::Document::open(pdf_path).ok();
     let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
     let figure_mode = args.options.effective_figure_mode();
@@ -114,6 +119,7 @@ fn build_document_from_raw(
         formula_sidecar: formula_sidecar
             .as_ref()
             .map(|sidecar| sidecar as &dyn FormulaSidecar),
+        table_geometry_doc: table_geometry_doc.as_ref(),
     };
 
     let mut pages = Vec::new();
@@ -147,6 +153,7 @@ struct PageBuildContext<'a> {
     args: &'a ConvertArgs,
     furniture_mask: &'a std::collections::HashMap<usize, Vec<Bbox>>,
     formula_sidecar: Option<&'a dyn FormulaSidecar>,
+    table_geometry_doc: Option<&'a mupdf::Document>,
 }
 
 struct BuiltPage {
@@ -169,7 +176,14 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     };
     let table_mode = ctx.args.options.effective_table_mode();
     let formula_mode = ctx.args.options.effective_formula_mode();
-    let table_candidates = detect_coordinate_tables(&raw_page.words, raw_page.width, table_mode);
+    let mut table_candidates =
+        detect_coordinate_tables(&raw_page.words, raw_page.width, table_mode);
+    table_candidates.extend(detect_geometry_table_candidates(
+        ctx.table_geometry_doc,
+        &raw_page,
+        table_mode,
+    ));
+    let table_candidates = suppress_overlapping_table_candidates(table_candidates);
     let furniture_bboxes = ctx
         .furniture_mask
         .get(&raw_page.page_num)
@@ -375,6 +389,80 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
             reading_order: 0,
         })
         .collect()
+}
+
+fn detect_geometry_table_candidates(
+    mu_doc: Option<&mupdf::Document>,
+    raw_page: &RawPage,
+    mode: TableMode,
+) -> Vec<TableCandidate> {
+    if matches!(mode, TableMode::Off) {
+        return Vec::new();
+    }
+
+    let Some(mu_doc) = mu_doc else {
+        return Vec::new();
+    };
+    let Ok(mu_page) = mu_doc.load_page(raw_page.page_num as i32) else {
+        return Vec::new();
+    };
+    let Ok((hlines, vlines)) = extract_lines(&mu_page, raw_page.width, raw_page.height) else {
+        return Vec::new();
+    };
+    let regions = detect_table_region_candidates(
+        &hlines,
+        &vlines,
+        &raw_page.words,
+        raw_page.width,
+        raw_page.height,
+    );
+
+    regions
+        .into_iter()
+        .filter_map(|region| geometry_region_to_table_candidate(region, mode))
+        .collect()
+}
+
+fn geometry_region_to_table_candidate(
+    region: GeometryTableRegion,
+    mode: TableMode,
+) -> Option<TableCandidate> {
+    let render = match mode {
+        TableMode::Off => return None,
+        TableMode::Layout => TableRender::Layout {
+            text: region.layout_text,
+        },
+        TableMode::Native => TableRender::Markdown,
+        TableMode::Auto if region.row_consistency >= 0.80 && region.rows.len() >= 3 => {
+            TableRender::Markdown
+        }
+        TableMode::Auto => TableRender::Layout {
+            text: region.layout_text,
+        },
+    };
+
+    Some(TableCandidate {
+        table: DetectedTable {
+            bbox: region.bbox,
+            rows: region.rows,
+            confidence: region.confidence,
+            render,
+        },
+        source_block_ids: region.source_block_ids,
+    })
+}
+
+fn suppress_overlapping_table_candidates(candidates: Vec<TableCandidate>) -> Vec<TableCandidate> {
+    let mut kept: Vec<TableCandidate> = Vec::new();
+    'candidate: for candidate in candidates {
+        for existing in &kept {
+            if bbox_overlap_smaller(candidate.table.bbox, existing.table.bbox) > 0.65 {
+                continue 'candidate;
+            }
+        }
+        kept.push(candidate);
+    }
+    kept
 }
 
 fn formula_excluded_regions(tables: &[TableCandidate], furniture_bboxes: &[Bbox]) -> Vec<Bbox> {
@@ -615,18 +703,40 @@ fn bbox_overlap_ratio(a: crate::document::types::Bbox, b: crate::document::types
     intersection / a.area().max(1.0)
 }
 
+fn bbox_overlap_smaller(a: crate::document::types::Bbox, b: crate::document::types::Bbox) -> f32 {
+    let x0 = a.x0.max(b.x0);
+    let y0 = a.y0.max(b.y0);
+    let x1 = a.x1.min(b.x1);
+    let y1 = a.y1.min(b.y1);
+    let intersection = ((x1 - x0).max(0.0)) * ((y1 - y0).max(0.0));
+    intersection / a.area().min(b.area()).max(1.0)
+}
+
 fn write_table_debug(
     output_dir: &Path,
     page_num: usize,
     candidates: &[TableCandidate],
 ) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct DebugTable<'a> {
+        table_region: Bbox,
+        confidence: f32,
+        render: &'a TableRender,
+        rows: &'a [Vec<String>],
+    }
+
     let debug_dir = output_dir.join("debug").join("tables");
     std::fs::create_dir_all(&debug_dir)
         .with_context(|| format!("Failed to create table debug dir {}", debug_dir.display()))?;
     let path = debug_dir.join(format!("page{}.json", page_num + 1));
     let tables: Vec<_> = candidates
         .iter()
-        .map(|candidate| &candidate.table)
+        .map(|candidate| DebugTable {
+            table_region: candidate.table.bbox,
+            confidence: candidate.table.confidence,
+            render: &candidate.table.render,
+            rows: &candidate.table.rows,
+        })
         .collect();
     let json = serde_json::to_string_pretty(&tables)?;
     std::fs::write(&path, json)
@@ -698,7 +808,7 @@ fn write_formula_debug(
         }
     }
 
-    if write_json {
+    if write_json && !candidates.is_empty() {
         let path = debug_dir.join(format!("page{}.json", page_num + 1));
         let json = serde_json::to_string_pretty(candidates)?;
         std::fs::write(&path, json)

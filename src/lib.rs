@@ -4,5 +4,7 @@ pub mod formula;
 pub mod pdf;
 
 pub mod layout {
+    pub mod drawing_ops;
     pub mod furniture;
+    pub mod table_detector;
 }

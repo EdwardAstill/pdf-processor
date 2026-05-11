@@ -4,7 +4,7 @@
 
 **Goal:** Add a `pdfp eval <fixtures-dir>` CLI command that converts fixture PDFs, compares output against per-page expected values, and reports precision/recall for formulas, tables, and headings.
 
-**Architecture:** A new `src/eval/` module contains the fixture schema (`fixtures.rs`), metric calculations (`metrics.rs`), and the runner (`runner.rs`). Fixtures are JSON files alongside their PDFs. Each fixture lists per-page expectations (formula LaTeX snippets, heading text+level, table count). The runner invokes the existing `PdfExtractor` + `Classifier` pipeline in-process (not via subprocess), collects the resulting `Document`, then computes and prints a metrics table. A `pdfp eval` subcommand wires this up. No new external dependencies are required — serde_json is already used by the hybrid client.
+**Architecture:** A new `src/eval/` module contains the fixture schema (`fixtures.rs`), metric calculations (`metrics.rs`), and the runner (`runner.rs`). Fixtures are JSON files alongside their PDFs. Each fixture lists per-page expectations (formula LaTeX snippets, heading text+level, table count). The runner must invoke the full local conversion pipeline in-process and collect the resulting `Document`; do not rebuild eval from only `PdfExtractor + Classifier`, because Stage 2 furniture suppression, Stage 3 formula sidecars, and Stage 4 geometry table detection/formula exclusion all live in `pipeline.rs`. A `pdfp eval` subcommand wires this up. No new external dependencies are required — serde_json is already used by the hybrid client.
 
 **Tech Stack:** Rust, serde_json, cargo test, existing pipeline types (`Document`, `Page`, `Block`, `BlockKind`)
 
@@ -24,11 +24,11 @@
   If false: add `serde_json = "1"` to `[dependencies]`.
   Owner: Task 1
 
-- `A2` — The pipeline entry point is `PdfExtractor::extract(path: &Path) -> VtvResult<(Vec<RawPage>, DocumentMetadata)>` followed by `Classifier::classify_page` — both callable from an evaluation runner without invoking the full CLI.
+- `A2` — The evaluation runner needs an in-process full-pipeline entry point that returns `Document`. If no public function exists yet, Stage 7 must first extract one from `pipeline.rs` without changing CLI behavior.
   Type: repo-state
-  Source: `src/pdf/extractor.rs:87`, `src/layout/classifier.rs:122` — confirmed in session
-  Check: `grep -n "pub fn extract\|pub fn classify_page" src/pdf/extractor.rs src/layout/classifier.rs`
-  If false: adjust the runner to use whatever the public API surface is.
+  Source: Stage 4 implementation; geometry table detection is wired in `build_document_from_raw` / `build_page`
+  Check: `grep -n "fn build_document_from_raw\|fn build_page\|pub fn process_pdf" src/pipeline.rs`
+  If false: use the existing public full-pipeline API.
   Owner: Task 3
 
 - `A3` — Formula recall is computed as `found / expected` where "found" means at least one `BlockKind::Formula` or `BlockKind::FormulaReview` block on the page regardless of LaTeX correctness, and "expected" is the `expected_formula_count` field in the fixture. LaTeX string matching is skipped for now (OCR quality is separate from detection recall).
@@ -38,7 +38,7 @@
   If false: add edit-distance matching to metrics module.
   Owner: Task 2
 
-- `A4` — Table recall is computed at the page level: a page "passes" if at least one `BlockKind::CoordinateTable` or `DetectedTable` is found when `expected_tables > 0`. Page-level precision/recall is reported.
+- `A4` — Table recall is computed at the page level: a page "passes" if at least one `BlockKind::CoordinateTable` is found when `expected_tables > 0`. Page-level precision/recall is reported. For standards smoke fixtures, optionally also report debug `table_region` counts, but the primary metric should use the final `Document` blocks.
   Type: design
   Source: pragmatic decision — cell-level coverage requires a ground-truth table labeller
   Check: N/A (design decision)
@@ -68,7 +68,8 @@
 | `src/eval/mod.rs` (new) | Module root: `pub mod fixtures; pub mod metrics; pub mod runner;` |
 | `src/eval/fixtures.rs` (new) | `FixtureFile`, `PageExpectation` structs + serde; `load_fixtures()` |
 | `src/eval/metrics.rs` (new) | `PageMetrics`, `DocMetrics`, `compute_page_metrics()`, `aggregate()`, `print_report()` |
-| `src/eval/runner.rs` (new) | `run_eval(fixtures: &[FixtureFile]) -> Vec<DocResult>`; calls extractor + classifier |
+| `src/eval/runner.rs` (new) | `run_eval(fixtures: &[FixtureFile]) -> Vec<DocResult>`; calls full local pipeline |
+| `src/pipeline.rs` | Add or expose an in-process `Document`-returning local pipeline entry point for eval |
 | `src/main.rs` | Add `mod eval;` and `Commands::Eval` dispatch |
 | `src/cli.rs` | Add `Eval(EvalArgs)` variant to `Commands`; `EvalArgs { dir: PathBuf }` |
 | `tests/eval_fixtures/` (new) | Example fixture JSON + minimal test PDF |
@@ -467,6 +468,8 @@ git commit -m "feat(eval): page and doc metrics computation"
 
 ### Task 3: Implement the eval runner
 
+**Stage 4 adjustment:** before computing metrics, add a public or crate-visible pipeline function that returns the fully built local `Document` for a PDF and options. Use that function from eval. Do not duplicate the extractor/classifier flow in the eval runner, because that would miss geometry table detection and formula exclusion.
+
 **Files:**
 - Create: `src/eval/runner.rs`
 - Test: `tests/eval_integration.rs`
@@ -515,9 +518,7 @@ Expected: compile error — `runner` module not found.
 ```rust
 use crate::eval::fixtures::FixtureFile;
 use crate::eval::metrics::{aggregate, compute_page_metrics, DocMetrics, PageMetrics};
-use crate::layout::classifier::Classifier;
-use crate::layout::xycut::build_xycut_order;
-use crate::pdf::extractor::PdfExtractor;
+use crate::pipeline::process_pdf_to_document;
 
 pub struct DocResult {
     pub doc_name: String,
