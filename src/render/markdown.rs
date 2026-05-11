@@ -242,6 +242,18 @@ impl MarkdownRenderer {
                     }
                     i += 1;
                 }
+                BlockKind::FormulaReview { reason, crop_path } => {
+                    md.push_str(&format!(
+                        "<!-- formula-review: page={} reason=\"{}\"",
+                        page.page_num + 1,
+                        escape_comment_attr(reason)
+                    ));
+                    if let Some(path) = crop_path {
+                        md.push_str(&format!(" crop=\"{}\"", escape_comment_attr(path)));
+                    }
+                    md.push_str(" -->\n\n");
+                    i += 1;
+                }
                 // Skip navigation artifacts
                 BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {
                     i += 1;
@@ -292,6 +304,13 @@ fn build_render_context(doc: &Document) -> RenderContext {
             .filter_map(|(fingerprint, pages)| (pages.len() >= 2).then_some(fingerprint))
             .collect(),
     }
+}
+
+fn escape_comment_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace("--", "- -")
 }
 
 fn build_page_media_plan(
@@ -1370,6 +1389,7 @@ fn find_scholarly_title_candidate(blocks: &[&Block], page: &Page) -> Option<usiz
                     | BlockKind::Image { .. }
                     | BlockKind::Figure { .. }
                     | BlockKind::Formula { .. }
+                    | BlockKind::FormulaReview { .. }
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
@@ -1657,6 +1677,16 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
                 markdown.push_str(&format!("${}$\n\n", latex.trim()));
             }
         }
+        BlockKind::FormulaReview { reason, crop_path } => {
+            markdown.push_str(&format!(
+                "<!-- formula-review: reason=\"{}\"",
+                escape_comment_attr(reason)
+            ));
+            if let Some(path) = crop_path {
+                markdown.push_str(&format!(" crop=\"{}\"", escape_comment_attr(path)));
+            }
+            markdown.push_str(" -->\n\n");
+        }
         BlockKind::CoordinateTable { table } if !force_plain_text => {
             markdown.push_str(&render_coordinate_table(table));
             markdown.push('\n');
@@ -1833,6 +1863,35 @@ mod tests {
         let result = renderer.render_document(&doc).unwrap();
         assert!(result.markdown.contains("# Introduction"));
         assert!(result.markdown.contains("Hello world."));
+    }
+
+    #[test]
+    fn renders_formula_review_marker() {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![make_block(
+                0,
+                "",
+                BlockKind::FormulaReview {
+                    reason: "visual-isolated-equation-band+cue:Hence:".into(),
+                    crop_path: Some("debug/formulas/page1_formula1.png".into()),
+                },
+                0,
+            )],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        let result = renderer.render_document(&doc).unwrap();
+
+        assert!(result.markdown.contains("<!-- formula-review: page=1"));
+        assert!(result.markdown.contains("visual-isolated-equation-band"));
+        assert!(result
+            .markdown
+            .contains("crop=\"debug/formulas/page1_formula1.png\""));
+        assert!(!result.markdown.contains("$$"));
     }
 
     #[test]

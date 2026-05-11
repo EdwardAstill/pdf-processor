@@ -137,20 +137,47 @@ flagged content. It resolves conversion to:
 - formula audit mode
 - no heuristic formula Markdown rendering
 
+## 2026-05-11 Implementation Note
+
+The first image-backed formula audit path is now implemented. When
+`--debug-formulas` is active, `pdfp` renders each page at low DPI, scans for
+isolated dark equation bands near formula cues such as `Hence:` and `where:`,
+and adds visual-only formula candidates to the existing `debug/formulas/`
+ledger. These candidates get crops and Markdown `formula-review` comments, not
+guessed LaTeX.
+
+This covers the first pass of the page-670 failure class: visible equations
+that are absent from the embedded PDF text layer can now be flagged for review.
+The remaining work is formula recognition, better DNV-specific fixture
+coverage, and more precise suppression of reference/table false positives.
+
+Verification run:
+
+```bash
+pdfp convert DNV-ST-N001_2018\ -\ Marine\ operations\ and\ marine\ warranty.pdf \
+  --conservative --debug-formulas --no-images \
+  -o target/dnv-formula-path-check
+```
+
+Observed result:
+
+- page 670 now has one `visual-page-render` candidate.
+- `debug/formulas/page670_formula2.png` crops the missing visible fraction
+  equation.
+- Markdown contains `<!-- formula-review: page=670 ... -->`.
+- page 69 alpha-factor tables gained zero visual candidates.
+- page 597 reference pages gained zero visual candidates.
+- total formula candidates changed from 3623 to 3717 because the visual pass
+  adds review-only candidates on other pages with horizontal formula rules.
+
 ## Recommended Next Change
 
-Build a second formula path that is image-based, not only word-based.
+Harden the image-based formula path with DNV regression fixtures and a formula
+recognition sidecar.
 
 Suggested implementation sequence:
 
-1. Add page-render based formula region detection.
-   - Render pages to images.
-   - Detect visually isolated equation bands.
-   - Use text-block gaps, centered dense symbol bands, and surrounding prose
-     cues such as `Hence:`, `formulae below`, `where:`, and equation captions.
-   - This should catch page 670-style formulas that text extraction misses.
-
-2. Suppress known false positives before counting formula candidates.
+1. Suppress known false positives before counting formula candidates.
    - Ignore bibliography/reference pages or reference-style lines such as
      `/34/ DNV-RU-OU-0300...`.
    - Do not classify full table rows as formulas when table detection already
@@ -158,23 +185,13 @@ Suggested implementation sequence:
    - Treat table cells with math symbols as table content, not standalone
      formulas.
 
-3. Add a formula sidecar contract.
+2. Add a formula sidecar contract.
    - Input: crop PNG plus page/crop metadata.
    - Output: LaTeX, confidence, backend name, and failure reason.
    - First backend candidates: Docling for full-page enrichment; formula OCR
      sidecar for per-crop recognition.
 
-4. Add review markers in Markdown for unresolved formulas.
-   - For pages with detected/missed formula gaps, insert a visible comment such
-     as:
-
-     ```markdown
-     <!-- formula-review: page=670 reason="visible equation not recovered" crop="..." -->
-     ```
-
-   - Do not silently omit formula-critical regions in standards output.
-
-5. Add regression fixtures from DNV pages.
+3. Add regression fixtures from DNV pages.
    - Page 130: should detect/crop displayed weight formulas.
    - Page 389: should classify formula-like table rows as table content.
    - Page 597: should not flag references as formulas.
@@ -186,10 +203,10 @@ Suggested implementation sequence:
 
 - `pdfp convert DNV-ST-N001 ... --conservative --debug-formulas` still writes
   audit JSON and crops without injecting heuristic `$$` into Markdown.
-- Page 670 has at least one true formula crop for the visible equation.
-- Page 597 reference entries are no longer counted as formula candidates.
+- Page 670 has at least one visual formula crop for the visible equation.
+- Page 597 reference entries do not gain visual formula candidates.
 - Page 69 alpha-factor table rows are handled as tables, not standalone
   formulas.
-- Markdown contains explicit review markers for formula regions that cannot be
-  reconstructed.
+- Markdown contains explicit `formula-review` markers for visual formula
+  regions that cannot be reconstructed.
 - Existing formula tests and full `cargo test` pass.

@@ -236,6 +236,9 @@ fn formula_candidate_report_contains_page_and_status() {
 
 #[test]
 fn sidecar_audit_skips_missing_optional_backends_cleanly() {
+    let Some(_) = fixture("math-number-theory.pdf") else {
+        return;
+    };
     let root = project_root();
     let output_dir = root.join("target/sidecar-audit-test");
     let _ = std::fs::remove_dir_all(&output_dir);

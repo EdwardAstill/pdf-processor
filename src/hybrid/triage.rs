@@ -100,6 +100,7 @@ pub fn is_low_density(page: &Page) -> bool {
                 b.kind,
                 BlockKind::Image { .. }
                     | BlockKind::Figure { .. }
+                    | BlockKind::FormulaReview { .. }
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
@@ -151,6 +152,7 @@ fn count_math_chars(blocks: &[Block]) -> usize {
                 b.kind,
                 BlockKind::Image { .. }
                     | BlockKind::Figure { .. }
+                    | BlockKind::FormulaReview { .. }
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
@@ -176,6 +178,7 @@ fn block_counts_as_readable_text(block: &Block) -> bool {
         BlockKind::Figure { caption, .. } => {
             caption.as_deref().is_some_and(|c| !c.trim().is_empty())
         }
+        BlockKind::FormulaReview { .. } => false,
         BlockKind::PageNumber
         | BlockKind::RunningHeader
         | BlockKind::RunningFooter

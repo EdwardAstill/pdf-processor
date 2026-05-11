@@ -129,6 +129,12 @@ pub enum BlockKind {
         latex: String,
         display: bool,
     },
+    /// A visually detected formula-like region that needs review because no
+    /// usable source text or LaTeX was recovered.
+    FormulaReview {
+        reason: String,
+        crop_path: Option<String>,
+    },
     /// A figure with an optional caption, linked by relative path.
     /// Produced by the Docling hybrid backend.
     Figure {

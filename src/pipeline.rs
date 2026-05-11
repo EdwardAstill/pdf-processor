@@ -11,7 +11,9 @@ use crate::figure::{
     detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
 };
 use crate::formats;
-use crate::formula::{detect_formula_candidates, FormulaCandidate};
+use crate::formula::{
+    detect_formula_candidates, detect_visual_formula_candidates, FormulaCandidate,
+};
 use crate::hybrid;
 use crate::layout::{
     classifier::Classifier,
@@ -164,6 +166,20 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     formula_candidates =
         suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
     if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
+        let excluded_regions: Vec<_> = table_candidates
+            .iter()
+            .map(|candidate| candidate.table.bbox)
+            .collect();
+        let visual_candidates = detect_visual_formula_candidates(
+            ctx.pdf_path,
+            &raw_page,
+            &formula_candidates,
+            &excluded_regions,
+        )?;
+        formula_candidates.extend(visual_candidates);
+        renumber_formula_candidates(&mut formula_candidates);
+    }
+    if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
         write_formula_debug(
             ctx.pdf_path,
             ctx.output_dir,
@@ -179,13 +195,12 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
     let formula_candidate_count = formula_candidates.len();
     let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
-    let formula_render_mode = if ctx.args.options.conservative {
-        FormulaMode::Off
-    } else {
-        formula_mode
-    };
-    let formula_blocks =
-        formula_candidates_to_blocks(raw_page.page_num, formula_candidates, formula_render_mode);
+    let formula_blocks = formula_candidates_to_blocks(
+        raw_page.page_num,
+        formula_candidates,
+        formula_mode,
+        !ctx.args.options.conservative,
+    );
     let text_classified = suppress_text_covered_by_formulas(text_classified, &formula_blocks);
 
     let figure_candidates = if ctx.extract_snapshot_figures {
@@ -344,6 +359,7 @@ fn formula_candidates_to_blocks(
     page_num: usize,
     candidates: Vec<FormulaCandidate>,
     mode: cli::FormulaMode,
+    render_math: bool,
 ) -> Vec<Block> {
     if matches!(mode, cli::FormulaMode::Off) {
         return Vec::new();
@@ -353,7 +369,23 @@ fn formula_candidates_to_blocks(
         .into_iter()
         .enumerate()
         .filter_map(|(idx, candidate)| {
-            if !should_emit_formula_candidate(&candidate, mode) {
+            if is_unresolved_formula_review(&candidate) {
+                return Some(Block {
+                    id: 3_100_000 + idx,
+                    bbox: candidate.bbox,
+                    text: String::new(),
+                    kind: BlockKind::FormulaReview {
+                        reason: candidate.reason,
+                        crop_path: candidate.crop_path,
+                    },
+                    font_size: 0.0,
+                    font_name: "formula-review".to_string(),
+                    page_num,
+                    reading_order: 0,
+                });
+            }
+
+            if !render_math || !should_emit_formula_candidate(&candidate, mode) {
                 return None;
             }
 
@@ -375,11 +407,26 @@ fn formula_candidates_to_blocks(
         .collect()
 }
 
+fn is_unresolved_formula_review(candidate: &FormulaCandidate) -> bool {
+    candidate.latex.is_none()
+        && candidate.source_text.trim().is_empty()
+        && candidate.backend.as_deref() == Some("visual-page-render")
+}
+
 fn should_emit_formula_candidate(candidate: &FormulaCandidate, mode: cli::FormulaMode) -> bool {
+    if candidate.latex.is_none() && candidate.source_text.trim().is_empty() {
+        return false;
+    }
     match mode {
         cli::FormulaMode::Auto => candidate.confidence >= 70,
         cli::FormulaMode::Local | cli::FormulaMode::Hybrid => true,
         cli::FormulaMode::Off => false,
+    }
+}
+
+fn renumber_formula_candidates(candidates: &mut [FormulaCandidate]) {
+    for (idx, candidate) in candidates.iter_mut().enumerate() {
+        candidate.formula_index = idx;
     }
 }
 
@@ -869,7 +916,7 @@ mod tests {
         let high = formula_candidate("E = mc^2", 70);
         let low = formula_candidate("a + b", 69);
 
-        let blocks = formula_candidates_to_blocks(0, vec![high, low], FormulaMode::Auto);
+        let blocks = formula_candidates_to_blocks(0, vec![high, low], FormulaMode::Auto, true);
 
         assert_eq!(blocks.len(), 1);
         assert!(matches!(blocks[0].kind, BlockKind::Formula { .. }));
@@ -900,6 +947,7 @@ mod tests {
             0,
             vec![formula_candidate("F = ma", 88)],
             FormulaMode::Auto,
+            true,
         );
         let text = Block {
             id: 42,
@@ -915,5 +963,27 @@ mod tests {
         let filtered = suppress_text_covered_by_formulas(vec![text], &formula);
 
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn visual_only_candidate_becomes_review_block_without_math_rendering() {
+        let mut candidate = formula_candidate("", 68);
+        candidate.backend = Some("visual-page-render".into());
+        candidate.reason = "visual-isolated-equation-band+cue:Hence:".into();
+        candidate.crop_path = Some("debug/formulas/page1_formula1.png".into());
+
+        let blocks = formula_candidates_to_blocks(0, vec![candidate], FormulaMode::Auto, false);
+
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].kind {
+            BlockKind::FormulaReview { reason, crop_path } => {
+                assert!(reason.contains("visual-isolated-equation-band"));
+                assert_eq!(
+                    crop_path.as_deref(),
+                    Some("debug/formulas/page1_formula1.png")
+                );
+            }
+            other => panic!("expected formula review block, got {other:?}"),
+        }
     }
 }
