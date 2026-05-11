@@ -65,3 +65,22 @@ fn real_formula_still_detected_after_reference_filter() {
     let candidates = detect_formula_candidates(&p, &[]);
     assert!(!candidates.is_empty(), "real numbered formula should still be detected");
 }
+
+#[test]
+fn table_bboxes_suppress_formula_candidates() {
+    // σ ≥ 235 MPa is a symbol-heavy line that would score as a formula,
+    // but when the surrounding table region is passed as excluded_bboxes it must be suppressed.
+    let p = page_with_words(vec![
+        word("σ",   200.0, 300.0, 210.0, 312.0, 11.0),
+        word("≥",   215.0, 300.0, 225.0, 312.0, 11.0),
+        word("235", 230.0, 300.0, 255.0, 312.0, 11.0),
+        word("MPa", 258.0, 300.0, 285.0, 312.0, 11.0),
+    ]);
+    let table_region = Bbox { x0: 150.0, y0: 280.0, x1: 400.0, y1: 340.0 };
+    let candidates = detect_formula_candidates(&p, &[table_region]);
+    assert!(
+        candidates.is_empty(),
+        "symbol-heavy table cell should be suppressed by excluded_bboxes, got: {:#?}",
+        candidates.iter().map(|c| &c.source_text).collect::<Vec<_>>()
+    );
+}

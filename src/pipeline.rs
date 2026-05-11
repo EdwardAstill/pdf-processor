@@ -6,7 +6,7 @@ use anyhow::Context;
 
 use crate::batch;
 use crate::cli::{self, ConvertArgs, FigureMode, FormulaMode, TableMode};
-use crate::document::types::{Block, BlockKind, Document, ImageRef, Page, RawPage};
+use crate::document::types::{Bbox, Block, BlockKind, Document, ImageRef, Page, RawPage};
 use crate::figure::{
     detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
 };
@@ -161,7 +161,13 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let mut formula_candidates = if matches!(formula_mode, FormulaMode::Off) {
         Vec::new()
     } else {
-        detect_formula_candidates(&raw_page, &[])
+        {
+            let excluded: Vec<Bbox> = table_candidates
+                .iter()
+                .map(|tc| tc.table.bbox)
+                .collect();
+            detect_formula_candidates(&raw_page, &excluded)
+        }
     };
     formula_candidates =
         suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
