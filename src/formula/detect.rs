@@ -39,8 +39,12 @@ struct FormulaLine {
     equation_number: Option<String>,
 }
 
-pub fn detect_formula_candidates(raw_page: &RawPage) -> Vec<FormulaCandidate> {
+pub fn detect_formula_candidates(raw_page: &RawPage, excluded_bboxes: &[Bbox]) -> Vec<FormulaCandidate> {
     if raw_page.words.is_empty() {
+        return Vec::new();
+    }
+
+    if is_reference_section(raw_page) {
         return Vec::new();
     }
 
@@ -56,10 +60,16 @@ pub fn detect_formula_candidates(raw_page: &RawPage) -> Vec<FormulaCandidate> {
     let page_bbox = raw_page.bbox();
     let mut candidates = Vec::new();
     for line in lines {
+        if is_reference_line(&line.text) {
+            continue;
+        }
         let Some((confidence, reason)) = score_line(&line, raw_page.width) else {
             continue;
         };
         let padded = pad_and_clamp(line.bbox, 4.0, page_bbox);
+        if excluded_bboxes.iter().any(|ex| overlap_ratio(padded, *ex) > 0.5) {
+            continue;
+        }
         candidates.push(FormulaCandidate {
             page_num: raw_page.page_num,
             formula_index: candidates.len(),
@@ -285,6 +295,69 @@ fn overlap_ratio(a: Bbox, b: Bbox) -> f32 {
     intersection / a.area().min(b.area()).max(1.0)
 }
 
+/// Returns true when the line looks like a bibliography or standards reference entry.
+/// Patterns matched:
+///   `/N/`  — DNV-style (e.g. `/34/ DNV-RU-OU-0300`)
+///   `[N]`  — IEEE/academic bracketed ref
+///   `(N)`  — numbered note
+/// N must be 1–4 ASCII digits.
+fn is_reference_line(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    // /N/ pattern
+    if let Some(rest) = t.strip_prefix('/') {
+        if let Some(slash) = rest.find('/') {
+            let maybe_num = &rest[..slash];
+            if !maybe_num.is_empty()
+                && maybe_num.len() <= 4
+                && maybe_num.chars().all(|c| c.is_ascii_digit())
+            {
+                return true;
+            }
+        }
+    }
+    // [N] or (N) pattern
+    let first = t.chars().next().unwrap_or(' ');
+    if first == '[' || first == '(' {
+        let close = if first == '[' { ']' } else { ')' };
+        if let Some(i) = t.find(close) {
+            let inner = &t[1..i];
+            if !inner.is_empty()
+                && inner.len() <= 4
+                && inner.chars().all(|c| c.is_ascii_digit())
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Returns true if this page looks like a reference/bibliography section.
+/// Two signals: first word is "References"/"Bibliography", OR >40% of lines
+/// start with a reference marker.
+fn is_reference_section(raw_page: &RawPage) -> bool {
+    if raw_page.words.is_empty() {
+        return false;
+    }
+    let first_text = raw_page.words.first().map(|w| w.text.as_str()).unwrap_or("");
+    if matches!(
+        first_text,
+        "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY"
+    ) {
+        return true;
+    }
+    let lines = group_words_into_lines(&raw_page.words);
+    if lines.is_empty() {
+        return false;
+    }
+    let ref_count = lines.iter().filter(|l| is_reference_line(&l.text)).count();
+    // >40% reference-marker lines → treat whole page as references
+    ref_count * 10 >= lines.len() * 4
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,7 +397,7 @@ mod tests {
             word("(1)", 430.0, 100.0, 450.0, 112.0, 0),
         ]);
 
-        let candidates = detect_formula_candidates(&raw);
+        let candidates = detect_formula_candidates(&raw, &[]);
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].equation_number.as_deref(), Some("(1)"));
@@ -345,7 +418,7 @@ mod tests {
             word("line.", 334.0, 100.0, 360.0, 112.0, 0),
         ]);
 
-        assert!(detect_formula_candidates(&raw).is_empty());
+        assert!(detect_formula_candidates(&raw, &[]).is_empty());
     }
 
     #[test]
@@ -357,7 +430,7 @@ mod tests {
             word("(P.3-2)", 52.0, 2.0, 92.0, 14.0, 0),
         ]);
 
-        let candidates = detect_formula_candidates(&raw);
+        let candidates = detect_formula_candidates(&raw, &[]);
 
         assert_eq!(candidates.len(), 1);
         assert!(candidates[0].bbox.x0 >= 0.0);

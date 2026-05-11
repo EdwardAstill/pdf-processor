@@ -5,6 +5,10 @@ edition = "2021"
 description = "Local PDF processor with markdown conversion, inspection, search, and page operations"
 license = "MIT"
 
+[lib]
+name = "pdf_processor"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pdfp"
 path = "src/main.rs"

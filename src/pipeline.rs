@@ -161,7 +161,7 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let mut formula_candidates = if matches!(formula_mode, FormulaMode::Off) {
         Vec::new()
     } else {
-        detect_formula_candidates(&raw_page)
+        detect_formula_candidates(&raw_page, &[])
     };
     formula_candidates =
         suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
