@@ -108,6 +108,7 @@ Main convert options:
 | `--debug-tables` | off | Write table candidate JSON under `debug/tables/` |
 | `--formulas <MODE>` | `auto` | Formula handling: `auto`, `local`, `hybrid`, or `off` |
 | `--debug-formulas` | off | Write formula candidate JSON and rendered crops under `debug/formulas/` |
+| `--formula-sidecar <CMD>` | off | Run an optional formula OCR command on high-confidence crops |
 | `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
 | `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
 | `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
@@ -149,6 +150,9 @@ pdfp convert catalogue.pdf --tables native --debug-tables -o out/
 
 # Audit formula candidates and rendered equation crops
 pdfp convert standard.pdf --debug-formulas -o out/
+
+# Recover high-confidence formula crops with a local sidecar command
+pdfp convert standard.pdf --formula-sidecar rapid-latex-ocr --debug-formulas -o out/
 
 # Route formula-heavy pages through Docling enrichment
 pdfp convert standard.pdf --hybrid docling --formulas hybrid -o out/
@@ -273,7 +277,7 @@ For review-sensitive work, start with `--conservative`. It keeps the conversion 
 
 Table handling is local and coordinate-based for born-digital PDFs. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` or `--conservative` for engineering catalogues where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
 
-Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--conservative` when formulas must be audited without heuristic Markdown rendering. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. Future local formula sidecars such as UniMERNet/PDF-Extract-Kit can consume the crops. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
+Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` to send high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Use `--conservative` when formulas must be audited without heuristic Markdown rendering. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
 
 Processor commands produce PDFs or JSON/human summaries. They currently preserve page contents conservatively, but outlines, document-level metadata, forms, and annotations are not yet guaranteed across merge/reorder/imposition workflows.
 

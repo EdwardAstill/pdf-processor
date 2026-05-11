@@ -103,6 +103,10 @@ pub struct ConvertOptions {
     #[arg(long)]
     pub debug_formulas: bool,
 
+    /// Optional formula OCR sidecar command. Receives a crop PNG path and prints LaTeX to stdout.
+    #[arg(long, value_name = "CMD")]
+    pub formula_sidecar: Option<String>,
+
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,
@@ -530,6 +534,7 @@ mod tests {
             debug_tables: false,
             formulas: FormulaMode::Local,
             debug_formulas: false,
+            formula_sidecar: None,
             verbose: false,
             hybrid: HybridMode::Off,
             hybrid_url: "http://localhost:5001".to_string(),

@@ -1895,6 +1895,34 @@ mod tests {
     }
 
     #[test]
+    fn renders_formula_with_latex_as_display_math() {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![make_block(
+                0,
+                "F = ma",
+                BlockKind::Formula {
+                    latex: "F = ma".into(),
+                    display: true,
+                },
+                0,
+            )],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        let result = renderer.render_document(&doc).unwrap();
+
+        assert!(
+            result.markdown.contains("$$ F = ma $$"),
+            "display formula should emit $$ ... $$, got: {}",
+            result.markdown
+        );
+    }
+
+    #[test]
     fn reflows_artificial_blank_lines_inside_paragraphs() {
         let page = Page {
             page_num: 0,

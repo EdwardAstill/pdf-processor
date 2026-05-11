@@ -55,8 +55,9 @@ fn every_command_path_prints_help() {
                     && stdout.contains("--figure-dpi")
                     && stdout.contains("--conservative")
                     && stdout.contains("--tables")
-                    && stdout.contains("--debug-tables"),
-                "convert help should document figure and table controls:\n{stdout}"
+                    && stdout.contains("--debug-tables")
+                    && stdout.contains("--formula-sidecar"),
+                "convert help should document figure, table, and formula controls:\n{stdout}"
             );
         }
     }

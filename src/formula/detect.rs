@@ -39,12 +39,20 @@ struct FormulaLine {
     equation_number: Option<String>,
 }
 
-pub fn detect_formula_candidates(raw_page: &RawPage, excluded_bboxes: &[Bbox]) -> Vec<FormulaCandidate> {
+pub fn detect_formula_candidates(
+    raw_page: &RawPage,
+    excluded_bboxes: &[Bbox],
+) -> Vec<FormulaCandidate> {
     if raw_page.words.is_empty() {
         return Vec::new();
     }
 
-    let mut lines = group_words_into_lines(&raw_page.words);
+    let words = words_excluding_bboxes(&raw_page.words, excluded_bboxes);
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    let mut lines = group_words_into_lines(&words);
 
     if is_reference_section(&lines) {
         return Vec::new();
@@ -108,6 +116,22 @@ pub fn detect_formula_candidates(raw_page: &RawPage, excluded_bboxes: &[Bbox]) -
             candidate.formula_index = idx;
             candidate
         })
+        .collect()
+}
+
+fn words_excluding_bboxes(words: &[RawWord], excluded_bboxes: &[Bbox]) -> Vec<RawWord> {
+    if excluded_bboxes.is_empty() {
+        return words.to_vec();
+    }
+
+    words
+        .iter()
+        .filter(|word| {
+            !excluded_bboxes
+                .iter()
+                .any(|bbox| overlap_ratio(word.bbox, *bbox) > 0.50)
+        })
+        .cloned()
         .collect()
 }
 
@@ -341,7 +365,8 @@ fn is_reference_line(text: &str) -> bool {
             if !inner.is_empty()
                 && inner.len() <= 4
                 && inner.chars().all(|c| c.is_ascii_digit())
-                && !after.is_empty() // require following content
+                && !after.is_empty()
+            // require following content
             {
                 return true;
             }
@@ -361,7 +386,10 @@ fn is_reference_section(lines: &[FormulaLine]) -> bool {
     // Fast path: any line whose full text is a reference heading.
     for line in lines {
         let t = line.text.trim();
-        if matches!(t, "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY") {
+        if matches!(
+            t,
+            "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY"
+        ) {
             return true;
         }
     }

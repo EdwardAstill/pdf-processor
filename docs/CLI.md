@@ -97,6 +97,7 @@ Useful conversion flags:
 | `--debug-tables` | Write table candidate JSON under `debug/tables/` |
 | `--formulas auto|local|hybrid|off` | Detect, audit, or route formula candidates |
 | `--debug-formulas` | Write formula candidate JSON and crops under `debug/formulas/` |
+| `--formula-sidecar <CMD>` | Run an optional formula OCR command on high-confidence crops |
 | `--ocr off|auto|force` | Run optional local OCR preprocessing |
 | `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
 | `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
@@ -180,6 +181,9 @@ pdfp convert standard.pdf -o out/ --formulas auto
 # Force local formula candidate rendering for inspection.
 pdfp convert standard.pdf -o out/ --formulas local --debug-formulas
 
+# Recover high-confidence formula crops with a local command.
+pdfp convert standard.pdf -o out/ --formula-sidecar rapid-latex-ocr --debug-formulas
+
 # Use formula candidates to route pages through Docling formula enrichment.
 pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 
@@ -187,7 +191,7 @@ pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 pdfp convert standard.pdf -o out/ --formulas off
 ```
 
-PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. Use the crops for review or for a future formula sidecar such as UniMERNet/PDF-Extract-Kit. For recovery today, run a Docling backend and use `--hybrid docling --formulas hybrid`.
+PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` sends high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
 
 ## Local OCR
 

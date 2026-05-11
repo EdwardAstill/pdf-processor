@@ -1,4 +1,5 @@
 pub mod detect;
+pub mod ocr;
 pub mod visual;
 
 pub use detect::{detect_formula_candidates, FormulaCandidate};

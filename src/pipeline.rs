@@ -11,12 +11,15 @@ use crate::figure::{
     detect_figure_candidates, render_figure_snapshots, FigureCandidate, FigureDetectionOptions,
 };
 use crate::formats;
+use crate::formula::detect::FormulaStatus;
+use crate::formula::ocr::{FormulaSidecar, SubprocessSidecar};
 use crate::formula::{
     detect_formula_candidates, detect_visual_formula_candidates, FormulaCandidate,
 };
 use crate::hybrid;
 use crate::layout::{
     classifier::Classifier,
+    furniture::detect_furniture_bboxes,
     table::{detect_coordinate_tables, TableCandidate},
     xycut::{assign_reading_order, build_xycut_order, XyCutConfig},
 };
@@ -84,6 +87,12 @@ fn build_document_from_raw(
     xycut_config: &XyCutConfig,
 ) -> anyhow::Result<Document> {
     let classifier = Classifier::new_for_document(&raw_pages);
+    let furniture_mask = detect_furniture_bboxes(&raw_pages);
+    let formula_sidecar = args
+        .options
+        .formula_sidecar
+        .as_ref()
+        .map(|command| SubprocessSidecar::new(command.clone()));
     let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
     let figure_mode = args.options.effective_figure_mode();
@@ -101,6 +110,10 @@ fn build_document_from_raw(
         images_dir: &images_dir,
         output_dir: &output_dir,
         args,
+        furniture_mask: &furniture_mask,
+        formula_sidecar: formula_sidecar
+            .as_ref()
+            .map(|sidecar| sidecar as &dyn FormulaSidecar),
     };
 
     let mut pages = Vec::new();
@@ -132,6 +145,8 @@ struct PageBuildContext<'a> {
     images_dir: &'a Path,
     output_dir: &'a Path,
     args: &'a ConvertArgs,
+    furniture_mask: &'a std::collections::HashMap<usize, Vec<Bbox>>,
+    formula_sidecar: Option<&'a dyn FormulaSidecar>,
 }
 
 struct BuiltPage {
@@ -155,27 +170,23 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let table_mode = ctx.args.options.effective_table_mode();
     let formula_mode = ctx.args.options.effective_formula_mode();
     let table_candidates = detect_coordinate_tables(&raw_page.words, raw_page.width, table_mode);
+    let furniture_bboxes = ctx
+        .furniture_mask
+        .get(&raw_page.page_num)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let excluded_regions = formula_excluded_regions(&table_candidates, furniture_bboxes);
     if ctx.args.options.debug_tables && !matches!(table_mode, TableMode::Off) {
         write_table_debug(ctx.output_dir, raw_page.page_num, &table_candidates)?;
     }
     let mut formula_candidates = if matches!(formula_mode, FormulaMode::Off) {
         Vec::new()
     } else {
-        {
-            let excluded: Vec<Bbox> = table_candidates
-                .iter()
-                .map(|tc| tc.table.bbox)
-                .collect();
-            detect_formula_candidates(&raw_page, &excluded)
-        }
+        detect_formula_candidates(&raw_page, &excluded_regions)
     };
     formula_candidates =
         suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
     if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
-        let excluded_regions: Vec<_> = table_candidates
-            .iter()
-            .map(|candidate| candidate.table.bbox)
-            .collect();
         let visual_candidates = detect_visual_formula_candidates(
             ctx.pdf_path,
             &raw_page,
@@ -185,19 +196,24 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         formula_candidates.extend(visual_candidates);
         renumber_formula_candidates(&mut formula_candidates);
     }
-    if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
+    if (ctx.args.options.debug_formulas || ctx.formula_sidecar.is_some())
+        && !matches!(formula_mode, FormulaMode::Off)
+    {
         write_formula_debug(
             ctx.pdf_path,
             ctx.output_dir,
             raw_page.page_num,
             &mut formula_candidates,
             ctx.args.options.figure_dpi,
+            ctx.formula_sidecar,
+            ctx.args.options.debug_formulas,
         )?;
     }
     let metadata = pdf::metadata::load_page_metadata(ctx.pdf_path, raw_page.page_num);
     let text_classified =
         ctx.classifier
             .classify_page_with_metadata(text_blocks, &page_shell, metadata.as_ref());
+    let text_classified = suppress_text_covered_by_furniture(text_classified, furniture_bboxes);
     let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
     let formula_candidate_count = formula_candidates.len();
     let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
@@ -359,6 +375,13 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
             reading_order: 0,
         })
         .collect()
+}
+
+fn formula_excluded_regions(tables: &[TableCandidate], furniture_bboxes: &[Bbox]) -> Vec<Bbox> {
+    let mut excluded = Vec::with_capacity(tables.len() + furniture_bboxes.len());
+    excluded.extend(tables.iter().map(|candidate| candidate.table.bbox));
+    excluded.extend_from_slice(furniture_bboxes);
+    excluded
 }
 
 fn formula_candidates_to_blocks(
@@ -528,6 +551,21 @@ fn suppress_text_covered_by_tables(
         .collect()
 }
 
+fn suppress_text_covered_by_furniture(blocks: Vec<Block>, furniture_bboxes: &[Bbox]) -> Vec<Block> {
+    if furniture_bboxes.is_empty() {
+        return blocks;
+    }
+
+    blocks
+        .into_iter()
+        .filter(|block| {
+            !furniture_bboxes
+                .iter()
+                .any(|bbox| bbox_overlap_ratio(block.bbox, *bbox) > 0.55)
+        })
+        .collect()
+}
+
 fn suppress_text_covered_by_formulas(blocks: Vec<Block>, candidates: &[Block]) -> Vec<Block> {
     if candidates.is_empty() {
         return blocks;
@@ -615,6 +653,8 @@ fn write_formula_debug(
     page_num: usize,
     candidates: &mut [FormulaCandidate],
     dpi: u32,
+    sidecar: Option<&dyn FormulaSidecar>,
+    write_json: bool,
 ) -> anyhow::Result<()> {
     let debug_dir = output_dir.join("debug").join("formulas");
     std::fs::create_dir_all(&debug_dir)
@@ -645,14 +685,33 @@ fn write_formula_debug(
                     format!("Failed to write formula crop {}", abs_path.display())
                 })?;
                 candidate.crop_path = Some(format!("debug/formulas/{filename}"));
+                if let Some(sidecar) = sidecar {
+                    if should_send_to_formula_sidecar(candidate) {
+                        candidate.latex = sidecar.recognize(&abs_path);
+                        if candidate.latex.is_some() {
+                            candidate.status = FormulaStatus::BackendRecovered;
+                            candidate.backend = Some("formula-sidecar".to_string());
+                        }
+                    }
+                }
             }
         }
     }
 
-    let path = debug_dir.join(format!("page{}.json", page_num + 1));
-    let json = serde_json::to_string_pretty(candidates)?;
-    std::fs::write(&path, json)
-        .with_context(|| format!("Failed to write formula debug {}", path.display()))
+    if write_json {
+        let path = debug_dir.join(format!("page{}.json", page_num + 1));
+        let json = serde_json::to_string_pretty(candidates)?;
+        std::fs::write(&path, json)
+            .with_context(|| format!("Failed to write formula debug {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn should_send_to_formula_sidecar(candidate: &FormulaCandidate) -> bool {
+    candidate.latex.is_none()
+        && candidate.confidence >= 70
+        && matches!(candidate.status, FormulaStatus::LocalCandidate)
 }
 
 fn warn_on_formula_candidate_summary(
@@ -899,6 +958,55 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].source_text, "F = m a");
         assert_eq!(filtered[0].formula_index, 0);
+    }
+
+    #[test]
+    fn formula_exclusions_include_tables_and_furniture() {
+        let table = TableCandidate {
+            table: DetectedTable {
+                bbox: Bbox::new(80.0, 100.0, 520.0, 240.0),
+                rows: Vec::new(),
+                confidence: 0.86,
+                render: TableRender::Markdown,
+            },
+            source_block_ids: BTreeSet::new(),
+        };
+        let footer = Bbox::new(0.0, 780.0, 595.0, 842.0);
+
+        let excluded = formula_excluded_regions(&[table], &[footer]);
+
+        assert_eq!(excluded, vec![Bbox::new(80.0, 100.0, 520.0, 240.0), footer]);
+    }
+
+    #[test]
+    fn furniture_bboxes_suppress_text_blocks() {
+        let footer_text = Block {
+            id: 42,
+            bbox: Bbox::new(40.0, 790.0, 300.0, 805.0),
+            text: "Downloaded by ACME".into(),
+            kind: BlockKind::Paragraph,
+            font_size: 8.0,
+            font_name: String::new(),
+            page_num: 0,
+            reading_order: 0,
+        };
+        let body_text = Block {
+            id: 43,
+            bbox: Bbox::new(40.0, 120.0, 300.0, 140.0),
+            text: "Body text".into(),
+            kind: BlockKind::Paragraph,
+            font_size: 10.0,
+            font_name: String::new(),
+            page_num: 0,
+            reading_order: 1,
+        };
+        let furniture = Bbox::new(0.0, 780.0, 595.0, 842.0);
+
+        let filtered =
+            suppress_text_covered_by_furniture(vec![footer_text, body_text], &[furniture]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].text, "Body text");
     }
 
     fn formula_candidate(source_text: &str, confidence: u8) -> FormulaCandidate {
