@@ -67,7 +67,18 @@ pub fn detect_formula_candidates(raw_page: &RawPage, excluded_bboxes: &[Bbox]) -
             continue;
         };
         let padded = pad_and_clamp(line.bbox, 4.0, page_bbox);
-        if excluded_bboxes.iter().any(|ex| overlap_ratio(padded, *ex) > 0.5) {
+        if excluded_bboxes.iter().any(|ex| {
+            let inter_x0 = padded.x0.max(ex.x0);
+            let inter_y0 = padded.y0.max(ex.y0);
+            let inter_x1 = padded.x1.min(ex.x1);
+            let inter_y1 = padded.y1.min(ex.y1);
+            if inter_x1 <= inter_x0 || inter_y1 <= inter_y0 {
+                return false;
+            }
+            let intersection = (inter_x1 - inter_x0) * (inter_y1 - inter_y0);
+            let formula_area = (padded.x1 - padded.x0) * (padded.y1 - padded.y0);
+            formula_area > 0.0 && intersection / formula_area > 0.5
+        }) {
             continue;
         }
         candidates.push(FormulaCandidate {
@@ -336,25 +347,25 @@ fn is_reference_line(text: &str) -> bool {
 }
 
 /// Returns true if this page looks like a reference/bibliography section.
-/// Two signals: first word is "References"/"Bibliography", OR >40% of lines
-/// start with a reference marker.
+/// Two signals: any spatially-grouped line whose full text is a reference
+/// heading, OR >40% of lines start with a reference marker.
 fn is_reference_section(raw_page: &RawPage) -> bool {
     if raw_page.words.is_empty() {
         return false;
-    }
-    let first_text = raw_page.words.first().map(|w| w.text.as_str()).unwrap_or("");
-    if matches!(
-        first_text,
-        "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY"
-    ) {
-        return true;
     }
     let lines = group_words_into_lines(&raw_page.words);
     if lines.is_empty() {
         return false;
     }
+    // Fast path: any line whose full text is a reference heading.
+    for line in &lines {
+        let t = line.text.trim();
+        if matches!(t, "References" | "Bibliography" | "REFERENCES" | "BIBLIOGRAPHY") {
+            return true;
+        }
+    }
+    // Density path: >40% of lines start with a reference marker.
     let ref_count = lines.iter().filter(|l| is_reference_line(&l.text)).count();
-    // >40% reference-marker lines → treat whole page as references
     ref_count * 10 >= lines.len() * 4
 }
 
