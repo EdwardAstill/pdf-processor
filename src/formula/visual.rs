@@ -217,7 +217,18 @@ fn band_to_bbox(band: &DarkBand, scale: f32, page_bbox: Bbox) -> Bbox {
     )
 }
 
+/// Minimum band height in pixels (at RENDER_DPI=72) to qualify as a formula region.
+/// At 72 DPI, body text glyphs are 8–14px tall; decorative rules are 1–3px.
+const MIN_BAND_HEIGHT_PX: i32 = 4;
+
+fn band_has_sufficient_height(band: &DarkBand) -> bool {
+    (band.y1 - band.y0) >= MIN_BAND_HEIGHT_PX
+}
+
 fn looks_like_formula_band(bbox: Bbox, raw_page: &RawPage, band: &DarkBand) -> bool {
+    if !band_has_sufficient_height(band) {
+        return false;
+    }
     let height = bbox.height();
     let width = bbox.width();
     if !(8.0..=90.0).contains(&height) || width < raw_page.width * 0.12 {
@@ -465,6 +476,34 @@ mod tests {
         let page = raw_page("References\n/34/ DNV-RU-OU-0300\n/35/ DNV-ST-N001\n/36/ ISO 19901\n/37/ API RP 2A\n/38/ EN 1993");
 
         assert!(is_reference_like_page(&page));
+    }
+
+    #[test]
+    fn band_below_height_threshold_rejected() {
+        let band = DarkBand {
+            y0: 100, y1: 101,  // 1px — decorative rule
+            x0: 50,  x1: 540,
+            dark_pixels: 490,
+            max_horizontal_run: 490,
+        };
+        assert!(
+            !band_has_sufficient_height(&band),
+            "1px band should fail height check"
+        );
+    }
+
+    #[test]
+    fn band_with_glyph_height_accepted() {
+        let band = DarkBand {
+            y0: 100, y1: 115,  // 15px — normal formula glyph
+            x0: 150, x1: 400,
+            dark_pixels: 200,
+            max_horizontal_run: 50,
+        };
+        assert!(
+            band_has_sufficient_height(&band),
+            "15px band should pass height check"
+        );
     }
 
     #[test]
