@@ -5,7 +5,7 @@ Branch: stage-6
 Remote: origin/stage-6
 
 ## Current Goal
-Continue staged PDF quality improvements after Stage 7 evaluation infrastructure.
+Reconsolidate staged PDF quality work after tagged-PDF support and Stage 7 evaluation infrastructure.
 
 ## Completed This Session
 - Committed the completed tagged-PDF structure-tree path as `feat: use tagged pdf structure when available`.
@@ -35,4 +35,5 @@ Continue staged PDF quality improvements after Stage 7 evaluation infrastructure
 - The repository worktree has no local ignored PDF corpus, so live output comparison uses user-local PDFs outside the repo.
 
 ## Next Action
-- Build a real ignored eval corpus under `test-corpus/eval/` and add tracked JSON expectations once representative PDFs are selected.
+- Open or merge PR for `origin/stage-6`, then create a new branch for Stage 7.5 baseline consolidation.
+- Use `.warden/plans/2026-05-13-next-stage-goals.md` as the next-stage contract.
