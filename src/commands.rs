@@ -13,10 +13,47 @@ pub fn run(command: AppCommand) -> anyhow::Result<()> {
         AppCommand::Doctor(args) => processor::doctor::run(&args),
         AppCommand::Inspect(args) => processor::inspect::run(&args),
         AppCommand::Search(args) => processor::search::run(&args),
+        AppCommand::Eval(args) => run_eval(args),
         AppCommand::Pages(args) => processor::pages::run(&args),
         AppCommand::Impose(args) => processor::impose::run(&args),
         AppCommand::Page(args) => processor::resize::run(&args),
     }
+}
+
+fn run_eval(args: crate::cli::EvalArgs) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        args.dir.exists(),
+        "fixture dir does not exist: {}",
+        args.dir.display()
+    );
+    anyhow::ensure!(
+        args.dir.is_dir(),
+        "fixture path is not a directory: {}",
+        args.dir.display()
+    );
+
+    let fixtures = crate::eval::fixtures::load_fixtures(&args.dir)?;
+    if fixtures.is_empty() {
+        println!("no fixture files found in {}", args.dir.display());
+        return Ok(());
+    }
+
+    let results = crate::eval::runner::run_eval(&fixtures);
+    let mut skipped = 0usize;
+    for result in &results {
+        if let Some(error) = &result.error {
+            eprintln!("eval: skipped {}: {error}", result.doc_name);
+            skipped += 1;
+            continue;
+        }
+        crate::eval::metrics::print_report(&result.doc_name, &result.metrics);
+    }
+    println!(
+        "evaluated {} document(s), skipped {}",
+        results.len().saturating_sub(skipped),
+        skipped
+    );
+    Ok(())
 }
 
 fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {

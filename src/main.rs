@@ -3,6 +3,7 @@ mod cli;
 mod commands;
 mod document;
 mod error;
+mod eval;
 mod figure;
 mod formats;
 mod formula;

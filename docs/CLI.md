@@ -11,6 +11,7 @@ pdfp ocr --help
 pdfp doctor --help
 pdfp inspect --help
 pdfp search --help
+pdfp eval --help
 pdfp pages --help
 pdfp pages extract --help
 pdfp impose booklet --help
@@ -46,6 +47,7 @@ pdfp doctor
 | Check runtime dependencies | `pdfp doctor` | Human summary or JSON |
 | Inspect PDF pages | `pdfp inspect input.pdf` | Human summary or JSON, optionally OCR-assisted |
 | Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON, optionally OCR-assisted |
+| Evaluate extraction quality | `pdfp eval fixtures/` | Formula, heading, and table metrics |
 | Extract/delete/split/reorder/merge pages | `pdfp pages ...` | New PDF files |
 | Create 2-up or booklet layouts | `pdfp impose ...` | New PDF files |
 | Resize pages | `pdfp page resize ...` | New PDF file |
@@ -315,6 +317,20 @@ pdfp search input.pdf "Fourier" --json
 ```
 
 By default, search only sees text embedded in the PDF. Add `--ocr auto` to let scan-heavy PDFs be converted to a searchable derivative first, or `--ocr force` when an existing text layer is unusable.
+
+## Evaluate Quality
+
+Run the local conversion pipeline against fixture JSON files and report quality
+metrics:
+
+```sh
+pdfp eval tests/eval_fixtures/
+```
+
+Each fixture JSON names a PDF and the expected formula count, headings, and
+table presence for selected pages. Missing PDFs are skipped with a clear message,
+which keeps large local corpora out of the repository while preserving the
+evaluation contract. See `tests/eval_fixtures/README.md` for the schema.
 
 ## Page Operations
 

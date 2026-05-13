@@ -362,6 +362,30 @@ Things to look for:
 - Tables: GFM pipe tables. Missing cells are OK (the classifier's grid detector is best-effort); garbage text in cells is not OK.
 - Page markers: `<!-- page:N -->` separators present, hidden on rendered display.
 
+## Evaluation (`pdfp eval`)
+
+`pdfp eval <fixtures-dir>` runs the local pipeline against fixture PDFs and
+reports formula recall, heading accuracy, and table recall. Fixture JSON files
+live next to their PDFs and are intentionally small enough to edit by hand.
+
+```bash
+pdfp eval tests/eval_fixtures/
+```
+
+Output shape:
+
+```text
+paper.pdf
+  pages evaluated:   3
+  formula recall:    75.0% (3/4)
+  heading accuracy:  100.0% (2/2)
+  table recall:      50.0% (1/2)
+```
+
+Fixture format is documented in `tests/eval_fixtures/README.md`. Missing PDFs
+are reported as skipped documents rather than panicking, which lets local corpus
+fixtures exist on developer machines without making CI depend on large PDFs.
+
 ## How to add a new test
 
 - **Unit test** — put it in a `#[cfg(test)] mod tests` block in the module under test. Reach for this first; unit tests are the fastest, most precise diagnostic.

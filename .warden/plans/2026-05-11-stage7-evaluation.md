@@ -12,8 +12,8 @@
 
 **Recommended MCPs:** none
 
-**Status:** draft
-**Refinement passes:** 0
+**Status:** completed
+**Refinement passes:** 1
 
 ## Assumptions
 
@@ -906,3 +906,28 @@ Summarise any acceptance items that did not pass.
 git add .
 git commit -m "docs: stage 7 post-implementation review"
 ```
+
+## Post-Implementation Review
+
+Updated: 2026-05-13 18:45 AWST
+
+### Acceptance Results
+
+- `pdfp eval <dir>` runs and prints metrics: pass. `target/debug/pdfp eval tests/eval_fixtures` reports the missing sample PDF as skipped and exits 0.
+- Fixture loading handles missing PDFs gracefully: pass. `cargo test --test eval_integration` includes `runner_returns_error_for_missing_fixture_pdf_without_panicking`.
+- Default tests: pass. `cargo test` completed with all non-ignored tests passing.
+- Optional PDF metadata path: pass. `cargo test --features pdfium-metadata` and the ignored tagged-PDF golden both passed.
+- Optional ONNX formula path: pass for build/parser/preprocess/model-dir coverage. `cargo test --features onnx-ocr` passed; real RapidLaTeX-OCR recognition was not run because the model files are not present locally.
+- Lints: pass. `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings` completed with no warnings.
+
+### Scope Drift
+
+- Kept: exposed the full pipeline through `process_pdf_to_document()`. This is required so eval measures the same local conversion path as `pdfp convert`.
+- Kept: added README and CLI-guide mentions for `pdfp eval`, because this stage adds a user-visible command.
+- Kept: installed fixture sample intentionally references a missing PDF. This preserves the repo's no-large-PDF policy while exercising the skip path.
+
+### Refactor Proposals
+
+- Add JSON output for `pdfp eval` when metrics need to feed dashboards or regression gates.
+- Add optional CLI flags to eval for `--formulas`, `--tables`, `--hybrid`, and `--formula-sidecar` once the fixture corpus includes model-backed or Docling-backed expectations.
+- Add real local fixture PDFs under ignored `test-corpus/eval/` and keep tracked JSON fixtures pointing to them when a stable corpus is available.

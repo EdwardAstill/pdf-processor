@@ -1,35 +1,38 @@
 # Next Work
 
-Updated: 2026-05-13 16:00
-Branch: main
-Remote: origin/main
+Updated: 2026-05-13 18:45 AWST
+Branch: stage-6
+Remote: origin/stage-6
 
 ## Current Goal
-Continue staged PDF quality improvements after Stage 6 native ONNX formula OCR scaffold.
+Continue staged PDF quality improvements after Stage 7 evaluation infrastructure.
 
 ## Completed This Session
-- Implemented Stage 6 `onnx-ocr` feature flag with native RapidLaTeX-OCR ONNX sidecar scaffold.
-- Added image preprocessing, vocabulary loading, token decode helpers, ONNX session loading, and greedy decode loop.
-- Wired `--formula-sidecar onnx:<model-dir>` and `cmd:<command>` while preserving bare command compatibility.
-- Documented ONNX setup and added feature-gated integration tests.
+- Committed the completed tagged-PDF structure-tree path as `feat: use tagged pdf structure when available`.
+- Added `pdfp eval <fixtures-dir>` for local fixture-based quality evaluation.
+- Added fixture loading, page/document metrics, an eval runner that calls the full local pipeline, CLI dispatch, tests, sample fixture docs, and CLI/testing documentation.
+- Verified default, `pdfium-metadata`, and `onnx-ocr` builds.
 
 ## Changed Files
-- `Cargo.toml` — optional `onnx-ocr` dependencies and `tempfile` dev dependency.
-- `src/formula/ocr_onnx.rs` — native ONNX sidecar implementation.
-- `src/formula/mod.rs`, `src/cli.rs`, `src/lib.rs`, `src/pipeline.rs` — feature gate, parser, exports, and dispatch.
-- `tests/formula_onnx.rs` — feature-gated parser/preprocess/vocab/model-dir tests.
-- `README.md`, `docs/CLI.md`, `docs/TESTING.md` — ONNX usage and test docs.
-- `.warden/plans/2026-05-11-stage6-onnx-formula-ocr.md` — post-implementation review.
+- `src/eval/` - fixture schema, metrics, and full-pipeline eval runner.
+- `src/pipeline.rs` - public `process_pdf_to_document()` entry point for in-process evaluation.
+- `src/cli.rs`, `src/commands.rs`, `src/main.rs`, `src/lib.rs` - eval command wiring and library exports.
+- `tests/eval_integration.rs`, `tests/eval_fixtures/`, `tests/cli_help.rs` - eval coverage and CLI smoke coverage.
+- `README.md`, `docs/CLI.md`, `docs/TESTING.md` - documented the new eval command and fixture format.
+- `.warden/plans/2026-05-11-stage7-evaluation.md` - post-implementation review.
 
 ## Verification
+- `cargo fmt --check` -> pass.
 - `cargo test` -> pass.
+- `cargo test --features pdfium-metadata` -> pass.
 - `cargo test --features onnx-ocr` -> pass.
-- `cargo clippy --all-targets -- -D warnings` -> pass.
-- `cargo clippy --features onnx-ocr --all-targets -- -D warnings` -> pass.
+- `cargo test --test golden --features pdfium-metadata -- --ignored golden_presentation_suppresses_repeated_page_furniture` -> pass.
+- `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings` -> pass.
+- `target/debug/pdfp eval tests/eval_fixtures` -> gracefully skips missing sample PDF.
 
 ## Blockers / Open Questions
-- Real ONNX recognition was not run because RapidLaTeX-OCR model files are not present locally.
-- `ort` `load-dynamic` failed on 2.0.0-rc.12 provider bindings; implementation uses `download-binaries`/`copy-dylibs`/`tls-rustls`.
+- Real ONNX formula recognition was not run because RapidLaTeX-OCR `encoder.onnx`, `decoder.onnx`, and `vocab.txt` are not present locally.
+- The repository worktree has no local ignored PDF corpus, so live output comparison uses user-local PDFs outside the repo.
 
 ## Next Action
-- Start Stage 7 evaluation, including an ignored or local model-backed ONNX smoke once model files are available.
+- Build a real ignored eval corpus under `test-corpus/eval/` and add tracked JSON expectations once representative PDFs are selected.

@@ -28,6 +28,8 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Search PDF text and report matching pages
     Search(SearchArgs),
+    /// Run quality evaluation against fixture JSON files
+    Eval(EvalArgs),
     /// Page extraction, deletion, splitting, reordering, and merging
     Pages(PagesCommand),
     /// Print imposition operations such as 2-up and booklet output
@@ -189,6 +191,12 @@ pub struct SearchArgs {
 
     #[command(flatten)]
     pub ocr: OcrOptions,
+}
+
+#[derive(Args, Debug)]
+pub struct EvalArgs {
+    /// Directory containing fixture JSON files and their PDFs
+    pub dir: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -359,6 +367,7 @@ impl Cli {
             Some(Command::Doctor(args)) => Ok(AppCommand::Doctor(args)),
             Some(Command::Inspect(args)) => Ok(AppCommand::Inspect(args)),
             Some(Command::Search(args)) => Ok(AppCommand::Search(args)),
+            Some(Command::Eval(args)) => Ok(AppCommand::Eval(args)),
             Some(Command::Pages(args)) => Ok(AppCommand::Pages(args)),
             Some(Command::Impose(args)) => Ok(AppCommand::Impose(args)),
             Some(Command::Page(args)) => Ok(AppCommand::Page(args)),
@@ -384,6 +393,7 @@ pub enum AppCommand {
     Doctor(DoctorArgs),
     Inspect(InspectArgs),
     Search(SearchArgs),
+    Eval(EvalArgs),
     Pages(PagesCommand),
     Impose(ImposeCommand),
     Page(PageCommand),
@@ -512,6 +522,34 @@ impl ConvertOptions {
             FormulaMode::Auto
         } else {
             self.formulas
+        }
+    }
+}
+
+impl Default for ConvertOptions {
+    fn default() -> Self {
+        Self {
+            output: None,
+            min_h_gap: 8.0,
+            min_v_gap: 12.0,
+            no_images: false,
+            conservative: false,
+            figures: FigureMode::Embedded,
+            figure_dpi: 200,
+            figure_padding: 8.0,
+            debug_figures: false,
+            tables: TableMode::Auto,
+            debug_tables: false,
+            formulas: FormulaMode::Auto,
+            debug_formulas: false,
+            formula_sidecar: None,
+            verbose: false,
+            hybrid: HybridMode::Off,
+            hybrid_url: "http://localhost:5001".to_string(),
+            hybrid_timeout_secs: 600,
+            hybrid_policy: HybridPolicy::Auto,
+            hybrid_cache_dir: None,
+            ocr: OcrOptions::default(),
         }
     }
 }
