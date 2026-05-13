@@ -1,9 +1,9 @@
 # Next Stage Goals And Reconsolidation Plan
 
-**Status:** draft
+**Status:** recorded
 **Created:** 2026-05-13
 **Branch:** `stage-6`
-**Current HEAD:** `3df5949 feat(eval): add quality evaluation command`
+**Current HEAD:** `8c2ac4f docs: reconsolidate next pdf quality stages`
 
 ## Task Restatement
 
@@ -17,6 +17,8 @@ The current branch is structurally in the right place: it is clean, pushed to `o
 - `3df5949 feat(eval): add quality evaluation command`
 
 The reconsolidation issue is stage naming. The original roadmap's Task 7 was image/vector handling, but the actual branch inserted evaluation infrastructure as Stage 7. That was the right product move because the project needed a measurement gate before further heuristic work, but the roadmap now needs explicit alignment.
+
+This file is the detailed next-stage contract. The roadmap in `docs/plans/2026-04-24-pdf-quality-roadmap.md` keeps the shorter public alignment note and should point back here rather than duplicate every acceptance item.
 
 ## Stage Goals
 

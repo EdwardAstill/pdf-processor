@@ -14,9 +14,11 @@
 
 ## Current Stage Alignment
 
-Updated: 2026-05-13 after branch `stage-6` reached `3df5949`.
+Updated: 2026-05-13 after branch `stage-6` reached `8c2ac4f`.
 
 This roadmap was written before the later stage-specific Warden plans. Treat the task list below as the historical source of product intent, not as the exact live stage numbering.
+
+Detailed next-stage contract: `.warden/plans/2026-05-13-next-stage-goals.md`.
 
 Live status:
 
