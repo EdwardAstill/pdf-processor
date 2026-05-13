@@ -104,6 +104,7 @@ pub fn is_low_density(page: &Page) -> bool {
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
+                    | BlockKind::Artifact
             )
         })
         .map(|b| b.bbox.area())
@@ -117,10 +118,17 @@ pub fn has_readable_text(page: &Page) -> bool {
 
 pub fn is_image_only(page: &Page) -> bool {
     !page.blocks.is_empty()
-        && page
-            .blocks
-            .iter()
-            .all(|b| matches!(b.kind, BlockKind::Image { .. } | BlockKind::Figure { .. }))
+        && page.blocks.iter().all(|b| {
+            matches!(
+                b.kind,
+                BlockKind::Image { .. }
+                    | BlockKind::Figure { .. }
+                    | BlockKind::PageNumber
+                    | BlockKind::RunningHeader
+                    | BlockKind::RunningFooter
+                    | BlockKind::Artifact
+            )
+        })
 }
 
 pub fn scan_report(pages: &[Page]) -> ScanReport {
@@ -156,6 +164,7 @@ fn count_math_chars(blocks: &[Block]) -> usize {
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
+                    | BlockKind::Artifact
             )
         })
         .flat_map(|b| b.text.chars())
@@ -182,6 +191,7 @@ fn block_counts_as_readable_text(block: &Block) -> bool {
         BlockKind::PageNumber
         | BlockKind::RunningHeader
         | BlockKind::RunningFooter
+        | BlockKind::Artifact
         | BlockKind::Image { .. } => false,
     }
 }

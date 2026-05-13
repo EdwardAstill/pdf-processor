@@ -255,7 +255,10 @@ impl MarkdownRenderer {
                     i += 1;
                 }
                 // Skip navigation artifacts
-                BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {
+                BlockKind::PageNumber
+                | BlockKind::RunningHeader
+                | BlockKind::RunningFooter
+                | BlockKind::Artifact => {
                     i += 1;
                 }
             }
@@ -1302,7 +1305,10 @@ fn render_scholarly_first_page(
         }
 
         match block.kind {
-            BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {}
+            BlockKind::PageNumber
+            | BlockKind::RunningHeader
+            | BlockKind::RunningFooter
+            | BlockKind::Artifact => {}
             _ if is_scholarly_metadata_line(text) => metadata_blocks.push(block),
             _ if is_scholarly_note_line(text) => deferred_notes.push(block),
             _ if looks_like_author_block(block)
@@ -1346,7 +1352,10 @@ fn render_scholarly_first_page(
                 continue;
             }
             match block.kind {
-                BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {}
+                BlockKind::PageNumber
+                | BlockKind::RunningHeader
+                | BlockKind::RunningFooter
+                | BlockKind::Artifact => {}
                 _ if is_scholarly_note_line(text) => deferred_notes.push(block),
                 _ => append_rendered_block(&mut markdown, block, true),
             }
@@ -1394,6 +1403,7 @@ fn find_scholarly_title_candidate(blocks: &[&Block], page: &Page) -> Option<usiz
                     | BlockKind::PageNumber
                     | BlockKind::RunningHeader
                     | BlockKind::RunningFooter
+                    | BlockKind::Artifact
             )
         {
             continue;
@@ -1722,7 +1732,10 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
                 markdown.push_str(&format!("{}- {}\n\n", indent, item_text));
             }
         }
-        BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {}
+        BlockKind::PageNumber
+        | BlockKind::RunningHeader
+        | BlockKind::RunningFooter
+        | BlockKind::Artifact => {}
         _ if force_plain_text => {
             let text = normalize_front_matter_text(block.text.trim());
             append_plain_text(markdown, &text);
@@ -2007,7 +2020,8 @@ mod tests {
             blocks: vec![
                 make_block(0, "1", BlockKind::PageNumber, 0),
                 make_block(1, "Chapter 1", BlockKind::RunningHeader, 1),
-                make_block(2, "Body text.", BlockKind::Paragraph, 2),
+                make_block(2, "Tagged artifact", BlockKind::Artifact, 2),
+                make_block(3, "Body text.", BlockKind::Paragraph, 3),
             ],
             override_markdown: None,
         };
@@ -2015,6 +2029,7 @@ mod tests {
         let renderer = MarkdownRenderer::new(false, None);
         let result = renderer.render_document(&doc).unwrap();
         assert!(!result.markdown.contains("Chapter 1"));
+        assert!(!result.markdown.contains("Tagged artifact"));
         assert!(result.markdown.contains("Body text."));
     }
 
