@@ -12,8 +12,30 @@
 
 **Recommended MCPs:** none
 
-**Status:** draft
-**Refinement passes:** 0
+**Status:** implemented
+**Refinement passes:** 1
+
+## Post-Implementation Review
+
+Updated: 2026-05-13
+
+Acceptance results:
+
+- Default build/tests: `cargo test` passes.
+- Feature build/tests: `cargo test --features onnx-ocr` passes.
+- Lints: `cargo clippy --all-targets -- -D warnings` and `cargo clippy --features onnx-ocr --all-targets -- -D warnings` pass.
+- Subprocess compatibility: bare `--formula-sidecar <command>` still passes existing Stage 3 tests; `cmd:<command>` parser coverage added.
+- ONNX CLI path: `onnx:<model-dir>` parser and model-dir validation covered; real model end-to-end not run because RapidLaTeX-OCR model files are not present locally.
+
+Scope drift:
+
+- `ort` `load-dynamic` was not used. `ort` 2.0.0-rc.12 compiles provider registration for `load-dynamic` against generated bindings that lack `SessionOptionsAppendExecutionProvider_VitisAI`. The implementation uses `download-binaries`, `copy-dylibs`, and `tls-rustls` instead.
+- `src/lib.rs` now exports `cli` so integration tests can cover sidecar parser behavior.
+
+Refactor proposals:
+
+- Add a model-fixture-driven ignored test once encoder/decoder/vocab files are available in local test assets.
+- Confirm RapidLaTeX-OCR decoder input order against downloaded model metadata before treating ONNX recognition quality as accepted.
 
 ## Assumptions
 

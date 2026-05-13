@@ -1164,8 +1164,7 @@ mod tests {
     fn monospace_single_line_block_becomes_code_block() {
         let clf = classifier_with_body(10.0);
         let page = page_for_classifier_tests();
-        let mut block =
-            make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
+        let mut block = make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
         block.font_name = "CourierNewPSMT".to_string();
 
         let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
@@ -1180,8 +1179,7 @@ mod tests {
     fn multi_line_monospace_block_is_not_promoted_to_inline_code() {
         let clf = classifier_with_body(10.0);
         let page = page_for_classifier_tests();
-        let mut block =
-            make_block(50.0, 100.0, 400.0, 145.0, "line one\nline two", 10.0);
+        let mut block = make_block(50.0, 100.0, 400.0, 145.0, "line one\nline two", 10.0);
         block.font_name = "Courier".to_string();
 
         let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
@@ -1196,8 +1194,7 @@ mod tests {
     fn non_monospace_font_does_not_promote_to_code_block() {
         let clf = classifier_with_body(10.0);
         let page = page_for_classifier_tests();
-        let mut block =
-            make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
+        let mut block = make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
         block.font_name = "Helvetica".to_string();
 
         let blocks = clf.classify_page_with_metadata(vec![block], &page, None);

@@ -103,8 +103,8 @@ pub struct ConvertOptions {
     #[arg(long)]
     pub debug_formulas: bool,
 
-    /// Optional formula OCR sidecar command. Receives a crop PNG path and prints LaTeX to stdout.
-    #[arg(long, value_name = "CMD")]
+    /// Optional formula OCR sidecar. Use a command, cmd:<command>, or onnx:<model-dir>.
+    #[arg(long, value_name = "SIDECAR")]
     pub formula_sidecar: Option<String>,
 
     /// Verbose output
@@ -466,6 +466,28 @@ pub enum FormulaMode {
     Hybrid,
     /// Disable formula candidate detection
     Off,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormulaSidecarArg {
+    Command(String),
+    #[cfg(feature = "onnx-ocr")]
+    Onnx(PathBuf),
+}
+
+pub fn parse_formula_sidecar(value: &str) -> anyhow::Result<FormulaSidecarArg> {
+    #[cfg(feature = "onnx-ocr")]
+    if let Some(model_dir) = value.strip_prefix("onnx:") {
+        return Ok(FormulaSidecarArg::Onnx(PathBuf::from(model_dir)));
+    }
+
+    #[cfg(not(feature = "onnx-ocr"))]
+    if value.starts_with("onnx:") {
+        anyhow::bail!("onnx formula sidecar requires a binary built with --features onnx-ocr");
+    }
+
+    let command = value.strip_prefix("cmd:").unwrap_or(value);
+    Ok(FormulaSidecarArg::Command(command.to_string()))
 }
 
 impl ConvertOptions {

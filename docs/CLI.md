@@ -97,7 +97,7 @@ Useful conversion flags:
 | `--debug-tables` | Write table candidate JSON under `debug/tables/` |
 | `--formulas auto|local|hybrid|off` | Detect, audit, or route formula candidates |
 | `--debug-formulas` | Write formula candidate JSON and crops under `debug/formulas/` |
-| `--formula-sidecar <CMD>` | Run an optional formula OCR command on high-confidence crops |
+| `--formula-sidecar <SIDECAR>` | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
 | `--ocr off|auto|force` | Run optional local OCR preprocessing |
 | `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
 | `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
@@ -184,6 +184,9 @@ pdfp convert standard.pdf -o out/ --formulas local --debug-formulas
 # Recover high-confidence formula crops with a local command.
 pdfp convert standard.pdf -o out/ --formula-sidecar rapid-latex-ocr --debug-formulas
 
+# Recover formula crops with native ONNX OCR in an onnx-ocr build.
+pdfp convert standard.pdf -o out/ --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr --debug-formulas
+
 # Use formula candidates to route pages through Docling formula enrichment.
 pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 
@@ -191,7 +194,18 @@ pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 pdfp convert standard.pdf -o out/ --formulas off
 ```
 
-PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` sends high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
+PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` sends high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the model directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
+
+To prepare native ONNX OCR:
+
+```sh
+mkdir -p ~/.local/share/pdfp/rapid-latex-ocr
+cd ~/.local/share/pdfp/rapid-latex-ocr
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/encoder.onnx
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/decoder.onnx
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/vocab.txt
+cargo build --release --features onnx-ocr
+```
 
 ## Local OCR
 

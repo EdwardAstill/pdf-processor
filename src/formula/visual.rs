@@ -482,8 +482,10 @@ mod tests {
     #[test]
     fn band_below_height_threshold_rejected() {
         let band = DarkBand {
-            y0: 100, y1: 101,  // 1px — decorative rule
-            x0: 50,  x1: 540,
+            y0: 100,
+            y1: 101, // 1px — decorative rule
+            x0: 50,
+            x1: 540,
             dark_pixels: 490,
             max_horizontal_run: 490,
         };
@@ -496,8 +498,10 @@ mod tests {
     #[test]
     fn band_with_glyph_height_accepted() {
         let band = DarkBand {
-            y0: 100, y1: 115,  // 15px — normal formula glyph
-            x0: 150, x1: 400,
+            y0: 100,
+            y1: 115, // 15px — normal formula glyph
+            x0: 150,
+            x1: 400,
             dark_pixels: 200,
             max_horizontal_run: 50,
         };

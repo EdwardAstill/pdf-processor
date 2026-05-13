@@ -9,13 +9,15 @@ const DNV_PDF: &str = "/home/eastill/projects/literature/standards/pdfs/\
 #[cfg(test)]
 mod dnv_formula_regression {
     use super::*;
-    use pdf_processor::pdf::extractor::PdfExtractor;
     use pdf_processor::formula::detect::detect_formula_candidates;
+    use pdf_processor::pdf::extractor::PdfExtractor;
 
     fn dnv_raw_page(page_num: usize) -> pdf_processor::document::types::RawPage {
         let pages = PdfExtractor::extract_pages(std::path::Path::new(DNV_PDF))
             .expect("failed to extract DNV PDF pages");
-        pages.into_iter().find(|p| p.page_num == page_num)
+        pages
+            .into_iter()
+            .find(|p| p.page_num == page_num)
             .unwrap_or_else(|| panic!("page {page_num} not found in DNV PDF"))
     }
 
@@ -28,7 +30,10 @@ mod dnv_formula_regression {
             candidates.is_empty(),
             "page 597 is a references section — expected 0 candidates, got {}: {:#?}",
             candidates.len(),
-            candidates.iter().map(|c| &c.source_text).collect::<Vec<_>>()
+            candidates
+                .iter()
+                .map(|c| &c.source_text)
+                .collect::<Vec<_>>()
         );
     }
 

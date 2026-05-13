@@ -15,6 +15,8 @@ use crate::figure::{
 use crate::formats;
 use crate::formula::detect::FormulaStatus;
 use crate::formula::ocr::{FormulaSidecar, SubprocessSidecar};
+#[cfg(feature = "onnx-ocr")]
+use crate::formula::ocr_onnx::OnnxFormulaSidecar;
 use crate::formula::{
     detect_formula_candidates, detect_visual_formula_candidates, FormulaCandidate,
 };
@@ -92,11 +94,7 @@ fn build_document_from_raw(
 ) -> anyhow::Result<Document> {
     let classifier = Classifier::new_for_document(&raw_pages);
     let furniture_mask = detect_furniture_bboxes(&raw_pages);
-    let formula_sidecar = args
-        .options
-        .formula_sidecar
-        .as_ref()
-        .map(|command| SubprocessSidecar::new(command.clone()));
+    let formula_sidecar = build_formula_sidecar(args.options.formula_sidecar.as_deref())?;
     let table_geometry_doc = mupdf::Document::open(pdf_path).ok();
     let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
@@ -116,9 +114,7 @@ fn build_document_from_raw(
         output_dir: &output_dir,
         args,
         furniture_mask: &furniture_mask,
-        formula_sidecar: formula_sidecar
-            .as_ref()
-            .map(|sidecar| sidecar as &dyn FormulaSidecar),
+        formula_sidecar: formula_sidecar.as_deref(),
         table_geometry_doc: table_geometry_doc.as_ref(),
     };
 
@@ -140,6 +136,28 @@ fn build_document_from_raw(
         pages,
         metadata,
     })
+}
+
+fn build_formula_sidecar(value: Option<&str>) -> anyhow::Result<Option<Box<dyn FormulaSidecar>>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    match cli::parse_formula_sidecar(value)? {
+        cli::FormulaSidecarArg::Command(command) => {
+            Ok(Some(Box::new(SubprocessSidecar::new(command))))
+        }
+        #[cfg(feature = "onnx-ocr")]
+        cli::FormulaSidecarArg::Onnx(model_dir) => {
+            let sidecar = OnnxFormulaSidecar::new(&model_dir).with_context(|| {
+                format!(
+                    "failed to initialise ONNX formula sidecar from {}",
+                    model_dir.display()
+                )
+            })?;
+            Ok(Some(Box::new(sidecar)))
+        }
+    }
 }
 
 struct PageBuildContext<'a> {

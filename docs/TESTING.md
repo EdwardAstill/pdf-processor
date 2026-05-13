@@ -16,6 +16,7 @@ Active scope note: the main `pdfp` binary is now a local PDF processor. Markdown
 | Golden snapshot diff (attention page 1) | `cargo test --test golden -- --ignored golden_snapshot_attention_page_1` | 1 | ~3 s |
 | PDF quality report | `bash scripts/quality-report.sh` | corpus summary + JSON report | corpus-dependent |
 | Local OCR sidecar | `cargo test --test ocr` | OCR decisions, standalone OCR command, missing-tool behavior, fake-cache hit | ~0.5 s+ |
+| Native formula OCR feature | `cargo test --features onnx-ocr --test formula_onnx` | ONNX feature gate, preprocessing tensor shape, vocab decode, sidecar parser/error paths | first run downloads ORT crates |
 | Figure snapshots | `cargo test --test figure_snapshots` | `--figures snapshot`, `--figures none`, `--no-images` precedence, PNG output | ~1 s |
 | Hybrid — `httpmock` | `cargo test --test hybrid` | 4 (skip when fixtures are absent) | ~0.5 s+ |
 | Hybrid — live docling-serve (see below) | `DOCLING_URL=… cargo test --test hybrid -- --ignored hybrid_live` | 1 | variable |
@@ -136,6 +137,7 @@ Current processor limitations:
 - **Markdown renderer** — tests in `src/render/markdown.rs::tests` covering heading/paragraph/list/table emission, section splitting, scanned-page warnings, and the Phase 2b `override_markdown` path (implicitly via hybrid integration tests).
 - **Figure snapshots** — tests in `src/figure/` cover candidate grouping and tiny/decorative rejection; `tests/figure_snapshots.rs` runs the real CLI against `attention.pdf` and checks rendered `_fig` PNGs, `--figures none`, and `--no-images` precedence.
 - **Formula candidates** — tests in `src/formula/` cover centered equation-number detection, prose rejection, bbox clamping, and visual-only review heuristics; `tests/formulas.rs` runs the real CLI against `math-number-theory.pdf` and checks `--debug-formulas` JSON, rendered formula crops, auto-mode display math promotion, and local warning behavior.
+- **Native formula OCR** — `tests/formula_onnx.rs` runs only with `--features onnx-ocr`. It checks the public ONNX module, 192×672 grayscale preprocessing tensor, vocabulary loading/token decoding, model-directory validation, and `--formula-sidecar` parsing for bare command, `cmd:`, and `onnx:` forms.
 - **Conservative conversion** — `src/cli.rs` unit tests verify that `--conservative` resolves to embedded figures, layout tables, and formula audit mode. `tests/formulas.rs` checks that conservative conversion does not render heuristic formula blocks even if `--formulas local` is present.
 - **Local OCR sidecar** — tests in `src/ocr/` and `tests/ocr.rs` cover OCRmyPDF argument construction, the standalone `pdfp ocr` command, triage that avoids clean born-digital PDFs, actionable missing-command failures for scan-heavy PDFs, JSON provenance for inspect/search, and cache-hit behavior using a fake OCR command.
 - **Hybrid triage/cache** — tests in `src/hybrid/triage.rs::tests` and `src/hybrid/mod.rs::tests` covering math-density threshold, table detection, low-density detection, running-footer exclusion, and cache hits that bypass backend/PDF extraction.

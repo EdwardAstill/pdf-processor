@@ -1,35 +1,35 @@
 # Next Work
 
-Updated: 2026-05-11 15:14
+Updated: 2026-05-13 16:00
 Branch: main
 Remote: origin/main
 
 ## Current Goal
-Continue staged PDF quality improvements after Stage 4 standards table detection.
+Continue staged PDF quality improvements after Stage 6 native ONNX formula OCR scaffold.
 
 ## Completed This Session
-- Implemented Stage 4 geometry-backed standards table detection.
-- Integrated detected table regions into debug output, text suppression, and formula exclusion.
-- Refactored geometry table row/layout shaping into `layout::table_detector`.
-- Updated Stage 5-7 plans for current APIs and Stage 4 behavior.
+- Implemented Stage 6 `onnx-ocr` feature flag with native RapidLaTeX-OCR ONNX sidecar scaffold.
+- Added image preprocessing, vocabulary loading, token decode helpers, ONNX session loading, and greedy decode loop.
+- Wired `--formula-sidecar onnx:<model-dir>` and `cmd:<command>` while preserving bare command compatibility.
+- Documented ONNX setup and added feature-gated integration tests.
 
 ## Changed Files
-- `src/layout/drawing_ops.rs` — raster-backed horizontal/vertical line extraction.
-- `src/layout/table_detector.rs` — line/grid/whitespace table region detection and region shaping.
-- `src/pipeline.rs` — geometry table integration and debug schema update.
-- `tests/table_detection.rs` — unit and DNV smoke coverage for Stage 4.
-- `README.md`, `docs/CLI.md` — document rule-line geometry table detection.
-- `.warden/plans/2026-05-11-stage5-inline-formatting.md` — note current API and block constructor adjustments.
-- `.warden/plans/2026-05-11-stage6-onnx-formula-ocr.md` — note `image` dependency and sidecar compatibility.
-- `.warden/plans/2026-05-11-stage7-evaluation.md` — require full-pipeline eval.
+- `Cargo.toml` — optional `onnx-ocr` dependencies and `tempfile` dev dependency.
+- `src/formula/ocr_onnx.rs` — native ONNX sidecar implementation.
+- `src/formula/mod.rs`, `src/cli.rs`, `src/lib.rs`, `src/pipeline.rs` — feature gate, parser, exports, and dispatch.
+- `tests/formula_onnx.rs` — feature-gated parser/preprocess/vocab/model-dir tests.
+- `README.md`, `docs/CLI.md`, `docs/TESTING.md` — ONNX usage and test docs.
+- `.warden/plans/2026-05-11-stage6-onnx-formula-ocr.md` — post-implementation review.
 
 ## Verification
 - `cargo test` -> pass.
+- `cargo test --features onnx-ocr` -> pass.
 - `cargo clippy --all-targets -- -D warnings` -> pass.
-- DNV page 69 table smoke -> pass in prior Stage 4 verification.
+- `cargo clippy --features onnx-ocr --all-targets -- -D warnings` -> pass.
 
 ## Blockers / Open Questions
-- `cargo fmt --check` still reports pre-existing rustfmt drift outside Stage 4 files.
+- Real ONNX recognition was not run because RapidLaTeX-OCR model files are not present locally.
+- `ort` `load-dynamic` failed on 2.0.0-rc.12 provider bindings; implementation uses `download-binaries`/`copy-dylibs`/`tls-rustls`.
 
 ## Next Action
-- Start Stage 5 only after using the adjusted plan and current struct APIs.
+- Start Stage 7 evaluation, including an ignored or local model-backed ONNX smoke once model files are available.

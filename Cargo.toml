@@ -37,15 +37,23 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # `libpdfium.so`/`pdfium.dll` at runtime and is not needed for the
 # default build. See docs/TESTING.md for runtime verification notes.
 pdfium-render = { version = "0.9", default-features = false, features = ["thread_safe", "pdfium_latest"], optional = true }
+# Optional native formula OCR inference path. Built only with `--features onnx-ocr`.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls", "ndarray"], optional = true }
+ndarray = { version = "0.17", optional = true }
+image = { version = "0.25", optional = true }
 
 [features]
 default = []
 # Opt-in font-name + struct-tree metadata via pdfium-render. Needs
 # `libpdfium` installed at runtime; see README for setup.
 pdfium-metadata = ["dep:pdfium-render"]
+# Native RapidLaTeX-OCR ONNX formula recognition. Needs ONNX Runtime available
+# through `ort`'s downloaded ONNX Runtime binaries at build time.
+onnx-ocr = ["dep:ort", "dep:ndarray", "dep:image"]
 
 [dev-dependencies]
 httpmock = "0.7"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

@@ -108,7 +108,7 @@ Main convert options:
 | `--debug-tables` | off | Write table candidate JSON under `debug/tables/` |
 | `--formulas <MODE>` | `auto` | Formula handling: `auto`, `local`, `hybrid`, or `off` |
 | `--debug-formulas` | off | Write formula candidate JSON and rendered crops under `debug/formulas/` |
-| `--formula-sidecar <CMD>` | off | Run an optional formula OCR command on high-confidence crops |
+| `--formula-sidecar <SIDECAR>` | off | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
 | `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
 | `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
 | `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
@@ -277,7 +277,20 @@ For review-sensitive work, start with `--conservative`. It keeps the conversion 
 
 Table handling is local and coordinate-based for born-digital PDFs. `pdfp` combines word alignment with rendered rule-line geometry, so standards tables with explicit horizontal rules can be detected even when the text layer is not already split into cells. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` or `--conservative` for engineering catalogues and standards where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
 
-Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` to send high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Use `--conservative` when formulas must be audited without heuristic Markdown rendering. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
+Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` to send high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. Use `--conservative` when formulas must be audited without heuristic Markdown rendering. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
+
+Optional native formula OCR:
+
+```sh
+mkdir -p ~/.local/share/pdfp/rapid-latex-ocr
+cd ~/.local/share/pdfp/rapid-latex-ocr
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/encoder.onnx
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/decoder.onnx
+wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/vocab.txt
+
+cargo build --release --features onnx-ocr
+target/release/pdfp convert paper.pdf --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr -o out/
+```
 
 Processor commands produce PDFs or JSON/human summaries. They currently preserve page contents conservatively, but outlines, document-level metadata, forms, and annotations are not yet guaranteed across merge/reorder/imposition workflows.
 
