@@ -57,6 +57,8 @@ pub fn render_figure_snapshots(
                 font_name: "figure-snapshot".to_string(),
                 page_num,
                 reading_order: 0,
+                bold: false,
+                italic: false,
             },
         });
     }

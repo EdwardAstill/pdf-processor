@@ -191,6 +191,8 @@ mod tests {
                 font_name: "image".to_string(),
                 page_num: 0,
                 reading_order: 0,
+                bold: false,
+                italic: false,
             }],
             override_markdown: None,
         }

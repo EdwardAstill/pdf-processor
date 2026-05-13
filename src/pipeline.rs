@@ -387,6 +387,8 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
             font_name: "table".to_string(),
             page_num,
             reading_order: 0,
+            bold: false,
+            italic: false,
         })
         .collect()
 }
@@ -499,6 +501,8 @@ fn formula_candidates_to_blocks(
                     font_name: "formula-review".to_string(),
                     page_num,
                     reading_order: 0,
+                    bold: false,
+                    italic: false,
                 });
             }
 
@@ -519,6 +523,8 @@ fn formula_candidates_to_blocks(
                 font_name: "formula-candidate".to_string(),
                 page_num,
                 reading_order: 0,
+                bold: false,
+                italic: false,
             })
         })
         .collect()
@@ -954,6 +960,8 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
             font_name: "image".to_string(),
             page_num: img_ref.page_num,
             reading_order: 0,
+            bold: false,
+            italic: false,
         });
     }
     Ok(blocks)
@@ -1099,6 +1107,8 @@ mod tests {
             font_name: String::new(),
             page_num: 0,
             reading_order: 0,
+            bold: false,
+            italic: false,
         };
         let body_text = Block {
             id: 43,
@@ -1109,6 +1119,8 @@ mod tests {
             font_name: String::new(),
             page_num: 0,
             reading_order: 1,
+            bold: false,
+            italic: false,
         };
         let furniture = Bbox::new(0.0, 780.0, 595.0, 842.0);
 
@@ -1182,6 +1194,8 @@ mod tests {
             font_name: String::new(),
             page_num: 0,
             reading_order: 0,
+            bold: false,
+            italic: false,
         };
 
         let filtered = suppress_text_covered_by_formulas(vec![text], &formula);

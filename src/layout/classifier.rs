@@ -85,6 +85,49 @@ pub struct ClassifierConfig {
     pub header_footer_zone: f32,
 }
 
+/// Font name substrings that mark a block as monospace. Case-insensitive
+/// match against `RawTextBlock::font_name`. Conservative on purpose — only
+/// strings that strongly correlate with a fixed-width family.
+const MONOSPACE_FONT_PATTERNS: &[&str] = &[
+    "courier",
+    "mono",
+    "consol",
+    "fixed",
+    "inconsolata",
+    "sourcecodepro",
+];
+
+/// Read bold/italic flags for a raw block from page metadata via geometric
+/// overlap. Returns `(false, false)` when metadata is absent or no font run
+/// overlaps the block.
+fn font_flags_for(rb: &RawTextBlock, metadata: Option<&PageMetadata>) -> (bool, bool) {
+    let Some(md) = metadata else {
+        return (false, false);
+    };
+    let Some(font) = md.font_for_bbox(&rb.bbox) else {
+        return (false, false);
+    };
+    (font.is_bold(), font.italic)
+}
+
+/// Promote a single-line `Paragraph` block to `CodeBlock` when its dominant
+/// font name matches a known monospace family. Multi-line monospace blocks
+/// pass through unchanged (block-level fenced code rendering is future work).
+fn promote_monospace(kind: BlockKind, rb: &RawTextBlock) -> BlockKind {
+    if !matches!(kind, BlockKind::Paragraph) || rb.text.contains('\n') {
+        return kind;
+    }
+    let name_lower = rb.font_name.to_lowercase();
+    if MONOSPACE_FONT_PATTERNS
+        .iter()
+        .any(|p| name_lower.contains(p))
+    {
+        BlockKind::CodeBlock
+    } else {
+        kind
+    }
+}
+
 impl Default for ClassifierConfig {
     fn default() -> Self {
         Self {
@@ -145,6 +188,8 @@ impl Classifier {
                 } else {
                     self.classify_block_with_metadata(&rb, page, metadata)
                 };
+                let (bold, italic) = font_flags_for(&rb, metadata);
+                let kind = promote_monospace(kind, &rb);
                 Block {
                     id: rb.block_id,
                     bbox: rb.bbox,
@@ -154,6 +199,8 @@ impl Classifier {
                     font_name: rb.font_name.clone(),
                     page_num: rb.page_num,
                     reading_order: rb.reading_order,
+                    bold,
+                    italic,
                 }
             })
             .collect()
@@ -1053,6 +1100,111 @@ mod tests {
         assert_eq!(
             clf.classify_block_with_metadata(&block, &page, Some(&md)),
             BlockKind::Paragraph
+        );
+    }
+
+    // ========================================================================
+    // Stage 5 — inline formatting flags + monospace promotion
+    // ========================================================================
+
+    #[test]
+    fn classify_page_sets_bold_flag_from_metadata() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let block = make_block(100.0, 100.0, 500.0, 115.0, "Some body text.", 10.0);
+
+        let mut md = PageMetadata::default();
+        md.fonts.push((
+            block.bbox,
+            FontInfo {
+                family: "Helvetica-Bold".to_string(),
+                weight: 700,
+                italic: false,
+            },
+        ));
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, Some(&md));
+        assert!(blocks[0].bold, "bold font run must set Block.bold");
+        assert!(!blocks[0].italic);
+    }
+
+    #[test]
+    fn classify_page_sets_italic_flag_from_metadata() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let block = make_block(100.0, 100.0, 500.0, 115.0, "Some italic text.", 10.0);
+
+        let mut md = PageMetadata::default();
+        md.fonts.push((
+            block.bbox,
+            FontInfo {
+                family: "Times-Italic".to_string(),
+                weight: 400,
+                italic: true,
+            },
+        ));
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, Some(&md));
+        assert!(!blocks[0].bold);
+        assert!(blocks[0].italic, "italic font run must set Block.italic");
+    }
+
+    #[test]
+    fn classify_page_without_metadata_leaves_flags_false() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let block = make_block(100.0, 100.0, 500.0, 115.0, "Some text.", 10.0);
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
+        assert!(!blocks[0].bold);
+        assert!(!blocks[0].italic);
+    }
+
+    #[test]
+    fn monospace_single_line_block_becomes_code_block() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let mut block =
+            make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
+        block.font_name = "CourierNewPSMT".to_string();
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
+        assert!(
+            matches!(blocks[0].kind, BlockKind::CodeBlock),
+            "monospace single-line block must become CodeBlock; got {:?}",
+            blocks[0].kind
+        );
+    }
+
+    #[test]
+    fn multi_line_monospace_block_is_not_promoted_to_inline_code() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let mut block =
+            make_block(50.0, 100.0, 400.0, 145.0, "line one\nline two", 10.0);
+        block.font_name = "Courier".to_string();
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
+        assert!(
+            matches!(blocks[0].kind, BlockKind::Paragraph),
+            "multi-line monospace must stay Paragraph; got {:?}",
+            blocks[0].kind
+        );
+    }
+
+    #[test]
+    fn non_monospace_font_does_not_promote_to_code_block() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let mut block =
+            make_block(50.0, 100.0, 400.0, 115.0, "cargo build --release", 10.0);
+        block.font_name = "Helvetica".to_string();
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
+        assert!(
+            matches!(blocks[0].kind, BlockKind::Paragraph),
+            "non-monospace single-line must stay Paragraph; got {:?}",
+            blocks[0].kind
         );
     }
 }

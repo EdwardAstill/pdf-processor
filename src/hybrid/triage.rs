@@ -201,6 +201,8 @@ mod tests {
             font_name: "Times".to_string(),
             page_num: 0,
             reading_order: 0,
+            bold: false,
+            italic: false,
         }
     }
 

@@ -159,7 +159,7 @@ impl MarkdownRenderer {
                 BlockKind::Paragraph => {
                     let text = normalize_paragraph_text(&block.text);
                     if !text.is_empty() {
-                        md.push_str(&text);
+                        md.push_str(&inline_wrap(&text, block.bold, block.italic));
                         md.push_str("\n\n");
                     }
                     i += 1;
@@ -606,12 +606,13 @@ fn render_list(blocks: &[&Block]) -> String {
     for block in blocks {
         if let BlockKind::ListItem { ordered, depth } = &block.kind {
             let indent = "  ".repeat(*depth as usize);
+            let item_text = inline_wrap(block.text.trim(), block.bold, block.italic);
             if *ordered {
                 let counter = ordered_counters.entry(*depth).or_insert(0);
                 *counter += 1;
-                result.push_str(&format!("{}{}. {}\n", indent, counter, block.text.trim()));
+                result.push_str(&format!("{}{}. {}\n", indent, counter, item_text));
             } else {
-                result.push_str(&format!("{}- {}\n", indent, block.text.trim()));
+                result.push_str(&format!("{}- {}\n", indent, item_text));
             }
         }
     }
@@ -1628,6 +1629,27 @@ fn append_plain_text(markdown: &mut String, text: &str) {
     markdown.push_str("\n\n");
 }
 
+/// Wrap rendered block text in Markdown inline markers when the source
+/// block's dominant font is bold and/or italic. Returns the text unchanged
+/// when both flags are false. Trims leading/trailing whitespace before
+/// wrapping so the markers sit flush against the text.
+fn inline_wrap(text: &str, bold: bool, italic: bool) -> String {
+    if !bold && !italic {
+        return text.to_string();
+    }
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return text.to_string();
+    }
+    let marker = match (bold, italic) {
+        (true, true) => "***",
+        (true, false) => "**",
+        (false, true) => "*",
+        (false, false) => unreachable!(),
+    };
+    format!("{marker}{trimmed}{marker}")
+}
+
 fn normalize_paragraph_text(text: &str) -> String {
     text.replace("-\n", "-")
         .lines()
@@ -1693,10 +1715,11 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
         }
         BlockKind::ListItem { ordered, depth } => {
             let indent = "  ".repeat(*depth as usize);
+            let item_text = inline_wrap(block.text.trim(), block.bold, block.italic);
             if *ordered {
-                markdown.push_str(&format!("{}1. {}\n\n", indent, block.text.trim()));
+                markdown.push_str(&format!("{}1. {}\n\n", indent, item_text));
             } else {
-                markdown.push_str(&format!("{}- {}\n\n", indent, block.text.trim()));
+                markdown.push_str(&format!("{}- {}\n\n", indent, item_text));
             }
         }
         BlockKind::PageNumber | BlockKind::RunningHeader | BlockKind::RunningFooter => {}
@@ -1704,7 +1727,14 @@ fn append_rendered_block(markdown: &mut String, block: &Block, force_plain_text:
             let text = normalize_front_matter_text(block.text.trim());
             append_plain_text(markdown, &text);
         }
-        _ => append_paragraph(markdown, &normalize_front_matter_text(block.text.trim())),
+        _ => append_paragraph(
+            markdown,
+            &inline_wrap(
+                &normalize_front_matter_text(block.text.trim()),
+                block.bold,
+                block.italic,
+            ),
+        ),
     }
 }
 
@@ -1835,6 +1865,8 @@ mod tests {
             font_name: "Helvetica".to_string(),
             page_num: 0,
             reading_order,
+            bold: false,
+            italic: false,
         }
     }
 
@@ -2509,5 +2541,80 @@ mod tests {
         assert!(!result.markdown.contains("images/logo.png"));
         assert!(result.markdown.contains("images/figure.png"));
         assert!(result.markdown.contains("*Figure 1: Model overview*"));
+    }
+
+    fn make_flagged_para(text: &str, bold: bool, italic: bool) -> Block {
+        let mut block = make_block(0, text, BlockKind::Paragraph, 0);
+        block.bold = bold;
+        block.italic = italic;
+        block
+    }
+
+    fn render_single_block(block: Block) -> String {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![block],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        renderer.render_document(&doc).unwrap().markdown
+    }
+
+    #[test]
+    fn bold_paragraph_renders_with_double_asterisks() {
+        let md = render_single_block(make_flagged_para("Important note.", true, false));
+        assert!(
+            md.contains("**Important note.**"),
+            "bold paragraph must be wrapped in **…**; got: {md}"
+        );
+    }
+
+    #[test]
+    fn italic_paragraph_renders_with_single_asterisks() {
+        let md = render_single_block(make_flagged_para("Side note.", false, true));
+        assert!(
+            md.contains("*Side note.*") && !md.contains("**"),
+            "italic paragraph must be wrapped in *…*; got: {md}"
+        );
+    }
+
+    #[test]
+    fn bold_italic_paragraph_renders_with_triple_asterisks() {
+        let md = render_single_block(make_flagged_para("Very important.", true, true));
+        assert!(
+            md.contains("***Very important.***"),
+            "bold+italic must be wrapped in ***…***; got: {md}"
+        );
+    }
+
+    #[test]
+    fn plain_paragraph_unchanged_by_inline_wrap() {
+        let md = render_single_block(make_flagged_para("Normal text.", false, false));
+        assert!(
+            md.contains("Normal text.") && !md.contains('*'),
+            "plain paragraph must not gain asterisks; got: {md}"
+        );
+    }
+
+    #[test]
+    fn bold_list_item_renders_with_markers_inside_bullet() {
+        let mut block = make_block(
+            0,
+            "Bold bullet",
+            BlockKind::ListItem {
+                ordered: false,
+                depth: 0,
+            },
+            0,
+        );
+        block.bold = true;
+        let md = render_single_block(block);
+        assert!(
+            md.contains("- **Bold bullet**"),
+            "bold list item must place markers after the bullet glyph; got: {md}"
+        );
     }
 }

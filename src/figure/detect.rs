@@ -483,6 +483,8 @@ mod tests {
             font_name: "test".to_string(),
             page_num: 0,
             reading_order: 0,
+            bold: false,
+            italic: false,
         }
     }
 
@@ -496,6 +498,8 @@ mod tests {
             font_name: "test".to_string(),
             page_num: 0,
             reading_order: id,
+            bold: false,
+            italic: false,
         }
     }
 

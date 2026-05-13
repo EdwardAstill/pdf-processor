@@ -169,6 +169,12 @@ pub struct Block {
     pub font_name: String,
     pub page_num: usize,
     pub reading_order: usize,
+    /// Dominant font is bold (weight ≥ 700). Only meaningful when font
+    /// metadata is available (feature `pdfium-metadata`); defaults to `false`.
+    pub bold: bool,
+    /// Dominant font is italic. Only meaningful when font metadata is
+    /// available; defaults to `false`.
+    pub italic: bool,
 }
 
 /// A raw page as extracted from mupdf (before layout analysis).
