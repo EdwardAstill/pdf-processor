@@ -25,3 +25,5 @@ Cargo.lock
 
 # Warden local runtime state
 .warden/runtime/
+
+.worktrees/
