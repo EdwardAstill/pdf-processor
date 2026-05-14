@@ -43,9 +43,9 @@ On this machine those PDFs were copied from:
 
 ```sh
 mkdir -p test-corpus/eval
-cp /home/eastill/projects/typst-template/engineering-report/example.pdf \
+cp /home/eastill/projects/typst-templates/engineering-report/example.pdf \
   test-corpus/eval/engineering-report-example.pdf
-cp /home/eastill/projects/typst-template/engineering-calc/example.pdf \
+cp /home/eastill/projects/typst-templates/engineering-calc/example.pdf \
   test-corpus/eval/engineering-calc-example.pdf
 ```
 

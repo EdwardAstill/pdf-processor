@@ -1,4 +1,5 @@
-use std::cmp::Ordering;
+mod merge;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -32,6 +33,13 @@ use crate::layout::{
 use crate::ocr;
 use crate::pdf::{self, extractor::PdfExtractor};
 use crate::render::markdown::MarkdownRenderer;
+
+use merge::{
+    formula_excluded_regions, merge_media_blocks, merge_text_and_formulas, merge_text_and_images,
+    merge_text_and_tables, suppress_formula_candidates_overlapping_tables,
+    suppress_overlapping_table_candidates, suppress_text_covered_by_formulas,
+    suppress_text_covered_by_furniture, suppress_text_covered_by_tables,
+};
 
 pub fn process_pdf(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
     if args.options.verbose {
@@ -317,84 +325,6 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     })
 }
 
-fn merge_text_and_formulas(mut text: Vec<Block>, mut formulas: Vec<Block>) -> Vec<Block> {
-    if formulas.is_empty() {
-        return text;
-    }
-    text.sort_by_key(|block| block.reading_order);
-    formulas.sort_by(|a, b| {
-        a.bbox
-            .y0
-            .partial_cmp(&b.bbox.y0)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(Ordering::Equal))
-    });
-
-    let mut result = Vec::with_capacity(text.len() + formulas.len());
-    let mut formula_iter = formulas.into_iter().peekable();
-    let mut order = 0usize;
-    for mut block in text {
-        while let Some(formula) = formula_iter.peek() {
-            if formula.bbox.y0 < block.bbox.y0 {
-                let mut formula = formula_iter.next().expect("peek succeeded");
-                formula.reading_order = order;
-                order += 1;
-                result.push(formula);
-            } else {
-                break;
-            }
-        }
-        block.reading_order = order;
-        order += 1;
-        result.push(block);
-    }
-    for mut formula in formula_iter {
-        formula.reading_order = order;
-        order += 1;
-        result.push(formula);
-    }
-    result
-}
-
-fn merge_text_and_tables(mut text: Vec<Block>, mut tables: Vec<Block>) -> Vec<Block> {
-    if tables.is_empty() {
-        return text;
-    }
-    text.sort_by_key(|block| block.reading_order);
-    tables.sort_by(|a, b| {
-        a.bbox
-            .y0
-            .partial_cmp(&b.bbox.y0)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(Ordering::Equal))
-    });
-
-    let mut result = Vec::with_capacity(text.len() + tables.len());
-    let mut table_iter = tables.into_iter().peekable();
-    let mut order = 0usize;
-    for mut block in text {
-        while let Some(table) = table_iter.peek() {
-            if table.bbox.y0 < block.bbox.y0 {
-                let mut table = table_iter.next().expect("peek succeeded");
-                table.reading_order = order;
-                order += 1;
-                result.push(table);
-            } else {
-                break;
-            }
-        }
-        block.reading_order = order;
-        order += 1;
-        result.push(block);
-    }
-    for mut table in table_iter {
-        table.reading_order = order;
-        order += 1;
-        result.push(table);
-    }
-    result
-}
-
 fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) -> Vec<Block> {
     candidates
         .into_iter()
@@ -475,26 +405,6 @@ fn geometry_region_to_table_candidate(
         },
         source_block_ids: region.source_block_ids,
     })
-}
-
-fn suppress_overlapping_table_candidates(candidates: Vec<TableCandidate>) -> Vec<TableCandidate> {
-    let mut kept: Vec<TableCandidate> = Vec::new();
-    'candidate: for candidate in candidates {
-        for existing in &kept {
-            if bbox_overlap_smaller(candidate.table.bbox, existing.table.bbox) > 0.65 {
-                continue 'candidate;
-            }
-        }
-        kept.push(candidate);
-    }
-    kept
-}
-
-fn formula_excluded_regions(tables: &[TableCandidate], furniture_bboxes: &[Bbox]) -> Vec<Bbox> {
-    let mut excluded = Vec::with_capacity(tables.len() + furniture_bboxes.len());
-    excluded.extend(tables.iter().map(|candidate| candidate.table.bbox));
-    excluded.extend_from_slice(furniture_bboxes);
-    excluded
 }
 
 fn formula_candidates_to_blocks(
@@ -647,98 +557,6 @@ fn unicode_to_latex(s: &str) -> String {
             }
             out
         })
-}
-
-fn suppress_text_covered_by_tables(
-    blocks: Vec<Block>,
-    candidates: &[TableCandidate],
-) -> Vec<Block> {
-    if candidates.is_empty() {
-        return blocks;
-    }
-
-    blocks
-        .into_iter()
-        .filter(|block| {
-            !candidates.iter().any(|candidate| {
-                candidate.source_block_ids.contains(&block.id)
-                    || bbox_overlap_ratio(block.bbox, candidate.table.bbox) > 0.55
-            })
-        })
-        .collect()
-}
-
-fn suppress_text_covered_by_furniture(blocks: Vec<Block>, furniture_bboxes: &[Bbox]) -> Vec<Block> {
-    if furniture_bboxes.is_empty() {
-        return blocks;
-    }
-
-    blocks
-        .into_iter()
-        .filter(|block| {
-            !furniture_bboxes
-                .iter()
-                .any(|bbox| bbox_overlap_ratio(block.bbox, *bbox) > 0.55)
-        })
-        .collect()
-}
-
-fn suppress_text_covered_by_formulas(blocks: Vec<Block>, candidates: &[Block]) -> Vec<Block> {
-    if candidates.is_empty() {
-        return blocks;
-    }
-
-    blocks
-        .into_iter()
-        .filter(|block| {
-            !candidates.iter().any(|candidate| {
-                matches!(candidate.kind, BlockKind::Formula { .. })
-                    && bbox_overlap_ratio(block.bbox, candidate.bbox) > 0.55
-            })
-        })
-        .collect()
-}
-
-fn suppress_formula_candidates_overlapping_tables(
-    candidates: Vec<FormulaCandidate>,
-    tables: &[TableCandidate],
-) -> Vec<FormulaCandidate> {
-    if candidates.is_empty() || tables.is_empty() {
-        return candidates;
-    }
-
-    candidates
-        .into_iter()
-        .filter(|candidate| {
-            !tables.iter().any(|table| {
-                table.table.confidence >= 0.70
-                    && bbox_overlap_ratio(candidate.bbox, table.table.bbox) > 0.55
-            })
-        })
-        .enumerate()
-        .map(|(idx, mut candidate)| {
-            candidate.formula_index = idx;
-            candidate
-        })
-        .collect()
-}
-
-fn bbox_overlap_ratio(a: crate::document::types::Bbox, b: crate::document::types::Bbox) -> f32 {
-    let x0 = a.x0.max(b.x0);
-    let y0 = a.y0.max(b.y0);
-    let x1 = a.x1.min(b.x1);
-    let y1 = a.y1.min(b.y1);
-    let intersection = ((x1 - x0).max(0.0)) * ((y1 - y0).max(0.0));
-    intersection / a.area().max(1.0)
-}
-
-fn bbox_overlap_smaller(a: crate::document::types::Bbox, b: crate::document::types::Bbox) -> f32 {
-    let x0 = a.x0.max(b.x0);
-    let y0 = a.y0.max(b.y0);
-    let x1 = a.x1.min(b.x1);
-    let y1 = a.y1.min(b.y1);
-    let intersection = ((x1 - x0).max(0.0)) * ((y1 - y0).max(0.0));
-    intersection / a.area().min(b.area()).max(1.0)
 }
 
 fn write_table_debug(
@@ -990,44 +808,6 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
     Ok(blocks)
 }
 
-fn merge_media_blocks(mut left: Vec<Block>, right: Vec<Block>) -> Vec<Block> {
-    left.extend(right);
-    left
-}
-
-fn merge_text_and_images(mut text: Vec<Block>, mut images: Vec<Block>) -> Vec<Block> {
-    if images.is_empty() {
-        return text;
-    }
-    text.sort_by_key(|b| b.reading_order);
-    images.sort_by(|a, b| a.bbox.y0.partial_cmp(&b.bbox.y0).unwrap_or(Ordering::Equal));
-
-    let mut result: Vec<Block> = Vec::with_capacity(text.len() + images.len());
-    let mut img_iter = images.into_iter().peekable();
-    let mut order: usize = 0;
-    for mut tb in text {
-        while let Some(peek) = img_iter.peek() {
-            if peek.bbox.y0 < tb.bbox.y0 {
-                let mut img = img_iter.next().expect("peek succeeded");
-                img.reading_order = order;
-                order += 1;
-                result.push(img);
-            } else {
-                break;
-            }
-        }
-        tb.reading_order = order;
-        order += 1;
-        result.push(tb);
-    }
-    for mut img in img_iter {
-        img.reading_order = order;
-        order += 1;
-        result.push(img);
-    }
-    result
-}
-
 fn write_document(doc: &Document, input_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
     let output_dir = batch::output_dir_for(input_path, args.options.output.as_deref());
     let renderer = MarkdownRenderer::new(!args.options.no_images, Some(output_dir.join("images")));
@@ -1048,111 +828,7 @@ fn write_document(doc: &Document, input_path: &Path, args: &ConvertArgs) -> anyh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::types::{Bbox, DetectedTable, TableRender};
     use crate::formula::detect::{FormulaCandidate, FormulaStatus};
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn suppresses_formula_candidates_inside_strong_tables() {
-        let table = TableCandidate {
-            table: DetectedTable {
-                bbox: Bbox::new(80.0, 100.0, 520.0, 240.0),
-                rows: vec![
-                    vec!["Item".into(), "2025".into(), "2024".into()],
-                    vec!["Revenue".into(), "100".into(), "90".into()],
-                ],
-                confidence: 0.86,
-                render: TableRender::Markdown,
-            },
-            source_block_ids: BTreeSet::new(),
-        };
-        let inside = FormulaCandidate {
-            page_num: 0,
-            formula_index: 0,
-            bbox: Bbox::new(120.0, 140.0, 500.0, 162.0),
-            source_text: "Revenue + assets = total".into(),
-            equation_number: None,
-            confidence: 80,
-            status: FormulaStatus::LocalCandidate,
-            backend: None,
-            latex: None,
-            reason: "relation+math-symbols".into(),
-            crop_path: None,
-        };
-        let outside = FormulaCandidate {
-            page_num: 0,
-            formula_index: 1,
-            bbox: Bbox::new(160.0, 320.0, 460.0, 342.0),
-            source_text: "F = m a".into(),
-            equation_number: Some("(1)".into()),
-            confidence: 88,
-            status: FormulaStatus::LocalCandidate,
-            backend: None,
-            latex: None,
-            reason: "centered+equation-number+relation".into(),
-            crop_path: None,
-        };
-
-        let filtered =
-            suppress_formula_candidates_overlapping_tables(vec![inside, outside], &[table]);
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].source_text, "F = m a");
-        assert_eq!(filtered[0].formula_index, 0);
-    }
-
-    #[test]
-    fn formula_exclusions_include_tables_and_furniture() {
-        let table = TableCandidate {
-            table: DetectedTable {
-                bbox: Bbox::new(80.0, 100.0, 520.0, 240.0),
-                rows: Vec::new(),
-                confidence: 0.86,
-                render: TableRender::Markdown,
-            },
-            source_block_ids: BTreeSet::new(),
-        };
-        let footer = Bbox::new(0.0, 780.0, 595.0, 842.0);
-
-        let excluded = formula_excluded_regions(&[table], &[footer]);
-
-        assert_eq!(excluded, vec![Bbox::new(80.0, 100.0, 520.0, 240.0), footer]);
-    }
-
-    #[test]
-    fn furniture_bboxes_suppress_text_blocks() {
-        let footer_text = Block {
-            id: 42,
-            bbox: Bbox::new(40.0, 790.0, 300.0, 805.0),
-            text: "Downloaded by ACME".into(),
-            kind: BlockKind::Paragraph,
-            font_size: 8.0,
-            font_name: String::new(),
-            page_num: 0,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        };
-        let body_text = Block {
-            id: 43,
-            bbox: Bbox::new(40.0, 120.0, 300.0, 140.0),
-            text: "Body text".into(),
-            kind: BlockKind::Paragraph,
-            font_size: 10.0,
-            font_name: String::new(),
-            page_num: 0,
-            reading_order: 1,
-            bold: false,
-            italic: false,
-        };
-        let furniture = Bbox::new(0.0, 780.0, 595.0, 842.0);
-
-        let filtered =
-            suppress_text_covered_by_furniture(vec![footer_text, body_text], &[furniture]);
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].text, "Body text");
-    }
 
     fn formula_candidate(source_text: &str, confidence: u8) -> FormulaCandidate {
         FormulaCandidate {
@@ -1198,32 +874,6 @@ mod tests {
             build_formula_latex(&candidate),
             "\\sigma  = \\sqrt{} x + \\theta  - \\Delta "
         );
-    }
-
-    #[test]
-    fn formula_blocks_suppress_overlapping_text_blocks() {
-        let formula = formula_candidates_to_blocks(
-            0,
-            vec![formula_candidate("F = ma", 88)],
-            FormulaMode::Auto,
-            true,
-        );
-        let text = Block {
-            id: 42,
-            bbox: Bbox::new(121.0, 141.0, 499.0, 161.0),
-            text: "F = ma".into(),
-            kind: BlockKind::Paragraph,
-            font_size: 10.0,
-            font_name: String::new(),
-            page_num: 0,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        };
-
-        let filtered = suppress_text_covered_by_formulas(vec![text], &formula);
-
-        assert!(filtered.is_empty());
     }
 
     #[test]

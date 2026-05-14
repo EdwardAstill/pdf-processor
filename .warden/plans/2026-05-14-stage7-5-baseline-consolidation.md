@@ -48,3 +48,4 @@ Turn `pdfp eval` into a useful local regression gate by wiring it to real ignore
 
 - The baseline reveals current `pdfp eval` limits: table recall can be high while geometry detection marks whole pages as table regions, because Stage 7 metrics do not yet score table precision.
 - Native ONNX formula quality remains unmeasured until RapidLaTeX-OCR model files are installed locally.
+- 2026-05-15: pipeline merge/suppress helpers moved into `src/pipeline/merge.rs` as a pre-Stage-8 cleanup. See `.warden/plans/2026-05-15-pipeline-merge-extraction.md`. No behaviour change; the helpers now have isolated unit tests so Stage 8 can tune heading/formula thresholds without re-reading the 1250-line `pipeline.rs`.

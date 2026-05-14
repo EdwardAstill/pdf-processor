@@ -110,6 +110,8 @@ Format is auto-detected from extension. `InputType::supports_format()` in `cli.r
 | `src/main.rs` | Pipeline dispatch by `InputType`, shared `write_document()` |
 | `src/cli.rs` | Clap CLI, `Format` enum, `InputType` enum with validation |
 | `src/batch.rs` | `resolve_inputs()` (file/dir/glob → `Vec<PathBuf>`), `output_dir_for()` |
+| `src/pipeline/mod.rs` | PDF → `Document` pipeline glue (extract → classify → detect tables/formulas → merge → write). Calls into `merge` for pure geometry ops. |
+| `src/pipeline/merge.rs` | Pure geometry helpers: `merge_text_and_*`, `suppress_text_covered_by_*`, `suppress_*_overlapping_*`, `bbox_overlap_*`, `formula_excluded_regions`. All `pub(super)` and unit-tested. |
 | `src/document/types.rs` | All shared types: `Document`, `Page`, `Block`, `BlockKind`, `Bbox`, etc. |
 | `src/error.rs` | `VtvError` (thiserror) and `VtvResult<T>` |
 | `src/pdf/extractor.rs` | mupdf integration, text/image extraction |
