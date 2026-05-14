@@ -31,3 +31,23 @@ Field notes:
 2. Run `pdfp inspect <pdf>` to identify page content.
 3. Create a `.json` file with expectations for the pages you want to measure.
 4. Run `pdfp eval tests/eval_fixtures/`.
+
+## Stage 7.5 Local Baseline
+
+The tracked Stage 7.5 fixtures point at ignored local PDFs:
+
+- `../../test-corpus/eval/engineering-report-example.pdf`
+- `../../test-corpus/eval/engineering-calc-example.pdf`
+
+On this machine those PDFs were copied from:
+
+```sh
+mkdir -p test-corpus/eval
+cp /home/eastill/projects/typst-template/engineering-report/example.pdf \
+  test-corpus/eval/engineering-report-example.pdf
+cp /home/eastill/projects/typst-template/engineering-calc/example.pdf \
+  test-corpus/eval/engineering-calc-example.pdf
+```
+
+`test-corpus/` is ignored. Missing PDFs are reported as skipped so the JSON
+fixtures can stay tracked without committing binary corpus files.

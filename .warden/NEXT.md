@@ -1,43 +1,45 @@
 # Next Work
 
-Updated: 2026-05-13 23:20 AWST
-Branch: stage-6
-Remote: origin/stage-6
+Updated: 2026-05-14 09:08 AWST
+Branch: stage-7.5-baseline-eval-corpus
+Remote: none
 
 ## Current Goal
-Merge or PR-review `origin/stage-6`, then start Stage 7.5 baseline consolidation from the recorded stage-goals contract.
+Finish Stage 7.5 baseline consolidation so Stage 8 has measured heading/formula targets.
 
 ## Completed This Session
-- Committed the completed tagged-PDF structure-tree path as `feat: use tagged pdf structure when available`.
-- Added `pdfp eval <fixtures-dir>` for local fixture-based quality evaluation.
-- Added fixture loading, page/document metrics, an eval runner that calls the full local pipeline, CLI dispatch, tests, sample fixture docs, and CLI/testing documentation.
-- Verified default, `pdfium-metadata`, and `onnx-ocr` builds.
-- Recorded the next-stage goals and stage-numbering reconciliation in `.warden/plans/2026-05-13-next-stage-goals.md`.
-- Updated the historical roadmap to point at that contract as the live stage alignment.
+- Created branch/worktree `stage-7.5-baseline-eval-corpus` from `stage-6`.
+- Copied two local Typst-generated PDFs into ignored `test-corpus/eval/`.
+- Added tracked eval fixtures for the engineering report and engineering calculation PDFs.
+- Recorded Stage 7.5 baseline scores in `.warden/research/stage7-5-baseline/BASELINE.md`.
+- Documented the local baseline workflow in `docs/TESTING.md` and `tests/eval_fixtures/README.md`.
 
 ## Changed Files
-- `src/eval/` - fixture schema, metrics, and full-pipeline eval runner.
-- `src/pipeline.rs` - public `process_pdf_to_document()` entry point for in-process evaluation.
-- `src/cli.rs`, `src/commands.rs`, `src/main.rs`, `src/lib.rs` - eval command wiring and library exports.
-- `tests/eval_integration.rs`, `tests/eval_fixtures/`, `tests/cli_help.rs` - eval coverage and CLI smoke coverage.
-- `README.md`, `docs/CLI.md`, `docs/TESTING.md` - documented the new eval command and fixture format.
-- `.warden/plans/2026-05-11-stage7-evaluation.md` - post-implementation review.
-- `.warden/plans/2026-05-13-next-stage-goals.md` - Stage 7.5 through Stage 10 goals, scope, acceptance, non-goals, and reconsolidation checklist.
-- `docs/plans/2026-04-24-pdf-quality-roadmap.md` - current stage alignment for the older roadmap.
+- `tests/eval_fixtures/engineering-report.json` - expected headings/formulas/tables for the local engineering report fixture.
+- `tests/eval_fixtures/engineering-calc.json` - expected headings/formulas/tables for the local calculation fixture.
+- `tests/eval_fixtures/README.md` - local corpus setup notes.
+- `tests/eval_integration.rs` - validates all tracked eval fixture JSON files.
+- `docs/TESTING.md` - Stage 7.5 baseline workflow and current scores.
+- `.gitignore` - ignores project-local `.worktrees/`.
+- `.warden/plans/2026-05-14-stage7-5-baseline-consolidation.md` - implementation contract.
+- `.warden/research/stage7-5-baseline/BASELINE.md` - baseline results and runtime gaps.
+- `.warden/NEXT.md` - updated handoff.
 
 ## Verification
 - `cargo fmt --check` -> pass.
+- `cargo test --test eval_integration tracked_fixture_json_files_are_valid` -> pass.
 - `cargo test` -> pass.
-- `cargo test --features pdfium-metadata` -> pass.
-- `cargo test --features onnx-ocr` -> pass.
-- `cargo test --test golden --features pdfium-metadata -- --ignored golden_presentation_suppresses_repeated_page_furniture` -> pass.
+- `target/debug/pdfp eval tests/eval_fixtures/` -> evaluates 2 local documents, skips 1 missing sample.
+- `git check-ignore -v .worktrees/example test-corpus/eval/engineering-report-example.pdf test-corpus/eval/engineering-calc-example.pdf` -> both local artifact paths ignored.
+- `target/debug/pdfp doctor --json` -> reports OCR unavailable with actionable install hint.
+- `cargo run --features pdfium-metadata -- convert test-corpus/eval/engineering-report-example.pdf -o target/stage7-5-pdfium-smoke --no-images --verbose` -> pass with explicit `libpdfium.so` missing fallback warnings.
 - `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings` -> pass.
-- `target/debug/pdfp eval tests/eval_fixtures` -> gracefully skips missing sample PDF.
 
 ## Blockers / Open Questions
-- Real ONNX formula recognition was not run because RapidLaTeX-OCR `encoder.onnx`, `decoder.onnx`, and `vocab.txt` are not present locally.
-- The repository worktree has no local ignored PDF corpus, so live output comparison uses user-local PDFs outside the repo.
+- Real ONNX formula recognition was not run because RapidLaTeX-OCR model files are not present locally.
+- `libpdfium` is not visible in `ldconfig -p`, so tagged-PDF runtime extraction still needs a local dependency install before accepting `pdfium-metadata` quality claims.
+- Table recall is currently 100% on the baseline fixtures, but debug output shows broad whole-page table regions; table precision is not yet measured by `pdfp eval`.
 
 ## Next Action
-- Open or merge PR for `origin/stage-6`, then create a new branch for Stage 7.5 baseline consolidation.
-- Use `.warden/plans/2026-05-13-next-stage-goals.md` as the next-stage contract.
+- Commit Stage 7.5.
+- Start Stage 8: improve numbered engineering headings and display/calc formula recall against this baseline.

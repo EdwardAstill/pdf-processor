@@ -188,8 +188,18 @@ fn eval_command_errors_on_missing_dir() {
 }
 
 #[test]
-fn example_fixture_is_valid_json() {
-    let path = Path::new("tests/eval_fixtures/sample.json");
-    let json = std::fs::read_to_string(path).expect("read sample.json");
-    let _: FixtureFile = serde_json::from_str(&json).expect("sample.json must be valid");
+fn tracked_fixture_json_files_are_valid() {
+    let dir = Path::new("tests/eval_fixtures");
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(dir).expect("read eval fixtures dir") {
+        let path = entry.expect("fixture entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let json = std::fs::read_to_string(&path).expect("read fixture json");
+        let _: FixtureFile = serde_json::from_str(&json)
+            .unwrap_or_else(|err| panic!("{} must be valid: {err}", path.display()));
+        checked += 1;
+    }
+    assert!(checked >= 3, "expected sample and local baseline fixtures");
 }

@@ -386,6 +386,47 @@ Fixture format is documented in `tests/eval_fixtures/README.md`. Missing PDFs
 are reported as skipped documents rather than panicking, which lets local corpus
 fixtures exist on developer machines without making CI depend on large PDFs.
 
+### Stage 7.5 local baseline
+
+The Stage 7.5 baseline fixtures use ignored PDFs under `test-corpus/eval/`.
+On this machine they were copied from the local Typst templates:
+
+```bash
+mkdir -p test-corpus/eval
+cp /home/eastill/projects/typst-template/engineering-report/example.pdf \
+  test-corpus/eval/engineering-report-example.pdf
+cp /home/eastill/projects/typst-template/engineering-calc/example.pdf \
+  test-corpus/eval/engineering-calc-example.pdf
+```
+
+Run:
+
+```bash
+target/debug/pdfp eval tests/eval_fixtures/
+```
+
+Current local baseline:
+
+```text
+engineering-calc-example.pdf
+  pages evaluated:   2
+  formula recall:    0.0% (0/12)
+  heading accuracy:  0.0% (0/8)
+  table recall:      100.0% (1/1)
+
+engineering-report-example.pdf
+  pages evaluated:   4
+  formula recall:    0.0% (0/1)
+  heading accuracy:  0.0% (0/13)
+  table recall:      100.0% (3/3)
+
+evaluated 2 document(s), skipped 1
+```
+
+The table value is recall only. Debug table output currently shows broad
+whole-page table regions on these Typst fixtures, so do not read the 100%
+table recall as table precision.
+
 ## How to add a new test
 
 - **Unit test** — put it in a `#[cfg(test)] mod tests` block in the module under test. Reach for this first; unit tests are the fastest, most precise diagnostic.

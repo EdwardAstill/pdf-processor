@@ -1,0 +1,85 @@
+{
+  "pdf": "../../test-corpus/eval/engineering-report-example.pdf",
+  "pages": [
+    {
+      "page": 3,
+      "expected_formula_count": 0,
+      "expected_headings": [
+        {
+          "text": "1 Introduction",
+          "level": 1
+        },
+        {
+          "text": "1.1 Scope",
+          "level": 2
+        },
+        {
+          "text": "1.2 Design basis",
+          "level": 2
+        }
+      ],
+      "expected_tables": 1
+    },
+    {
+      "page": 4,
+      "expected_formula_count": 1,
+      "expected_headings": [
+        {
+          "text": "2 Loading",
+          "level": 1
+        },
+        {
+          "text": "2.1 Permanent and imposed actions",
+          "level": 2
+        },
+        {
+          "text": "2.2 Action effects",
+          "level": 2
+        },
+        {
+          "text": "3 Preliminary Analysis",
+          "level": 1
+        },
+        {
+          "text": "3.1 Bending capacity",
+          "level": 2
+        },
+        {
+          "text": "3.2 Serviceability",
+          "level": 2
+        },
+        {
+          "text": "3.3 Summary of results",
+          "level": 2
+        }
+      ],
+      "expected_tables": 0
+    },
+    {
+      "page": 5,
+      "expected_formula_count": 0,
+      "expected_headings": [
+        {
+          "text": "4 Conclusion",
+          "level": 1
+        },
+        {
+          "text": "5 References",
+          "level": 1
+        }
+      ],
+      "expected_tables": 1
+    },
+    {
+      "page": 6,
+      "expected_formula_count": 0,
+      "expected_headings": [
+        {
+          "text": "6 Appendix A \u2014 Section properties",
+          "level": 1
+        }
+      ],
+      "expected_tables": 1
+    }
+  ]
+}
