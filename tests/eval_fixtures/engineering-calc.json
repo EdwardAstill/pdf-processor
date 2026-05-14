@@ -1,0 +1,51 @@
+{
+  "pdf": "../../test-corpus/eval/engineering-calc-example.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 5,
+      "expected_headings": [
+        {
+          "text": "BASE PLATE DESIGN",
+          "level": 1
+        },
+        {
+          "text": "Inputs",
+          "level": 2
+        },
+        {
+          "text": "Definitions",
+          "level": 2
+        }
+      ],
+      "expected_tables": 1
+    },
+    {
+      "page": 2,
+      "expected_formula_count": 7,
+      "expected_headings": [
+        {
+          "text": "Clause Checks",
+          "level": 2
+        },
+        {
+          "text": "Plate Thickness (AS 4100 \u00a78.3.1)",
+          "level": 3
+        },
+        {
+          "text": "Bolt Tension Capacity",
+          "level": 3
+        },
+        {
+          "text": "Plate Bending",
+          "level": 3
+        },
+        {
+          "text": "Revised Plate (tp = 12 mm)",
+          "level": 3
+        }
+      ],
+      "expected_tables": 0
+    }
+  ]
+}

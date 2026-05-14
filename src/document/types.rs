@@ -120,6 +120,9 @@ pub enum BlockKind {
     PageNumber,
     RunningHeader,
     RunningFooter,
+    /// Tagged-PDF artifact content. These blocks are deliberately non-content
+    /// and should be suppressed by renderers and scan heuristics.
+    Artifact,
     Image {
         path: Option<String>,
     },

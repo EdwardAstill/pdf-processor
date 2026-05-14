@@ -12,6 +12,36 @@
 
 ---
 
+## Current Stage Alignment
+
+Updated: 2026-05-13 after branch `stage-6` reached `8c2ac4f`.
+
+This roadmap was written before the later stage-specific Warden plans. Treat the task list below as the historical source of product intent, not as the exact live stage numbering.
+
+Detailed next-stage contract: `.warden/plans/2026-05-13-next-stage-goals.md`.
+
+Live status:
+
+- Stage 6A is complete on branch `stage-6`: tagged PDF structure roles are extracted when `pdfium-metadata` and `libpdfium` are available, and tagged artifacts are suppressed.
+- Stage 7 is complete on branch `stage-6`: `pdfp eval <fixtures-dir>` measures formulas, headings, and table recall/accuracy through the full local pipeline.
+- The branch is pushed to `origin/stage-6` and should be merged or PR-reviewed before further implementation branches are created.
+
+Reconsolidated next-stage goals:
+
+1. **Stage 7.5 - Baseline Consolidation**
+   Build a real ignored local eval corpus and install optional runtime dependencies (`libpdfium`, RapidLaTeX-OCR model files if formula OCR is being evaluated). Goal: know current scores before changing heuristics.
+
+2. **Stage 8 - Measured Heading And Formula Recovery**
+   Use `pdfp eval` output to improve the failures seen on local engineering-report samples: heading accuracy and display-formula recall are currently the weakest measured signals. Goal: raise fixture-backed heading/formula scores without regressing table recall.
+
+3. **Stage 9 - Image And Vector Handling**
+   Continue the original Task 7 image/vector work once text/formula/table metrics have a stable baseline. Goal: keep real figures while suppressing decorative/repeated images and documenting vector-only limits.
+
+4. **Stage 10 - Release Polish**
+   Continue the original Task 8 release polish after the measured quality stages settle. Goal: honest quality matrix, install/runtime notes, release notes, and final verification.
+
+---
+
 ## Research Summary
 
 Sources checked:

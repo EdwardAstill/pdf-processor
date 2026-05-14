@@ -62,6 +62,7 @@ pdfp ocr <INPUT> -o <OUTPUT> [--mode auto|force]
 pdfp doctor [--json]
 pdfp inspect <INPUT> [--json] [--ocr auto|force]
 pdfp search <INPUT> <TEXT> [--json] [--ocr auto|force]
+pdfp eval <FIXTURES_DIR>
 pdfp pages <extract|delete|split|reorder|merge> ...
 pdfp impose <2up|booklet> ...
 pdfp page resize <INPUT> -o <OUTPUT>
@@ -76,6 +77,7 @@ pdfp --help
 pdfp doctor --help
 pdfp convert --help
 pdfp ocr --help
+pdfp eval --help
 pdfp pages extract --help
 pdfp impose booklet --help
 pdfp page resize --help
@@ -224,6 +226,18 @@ pdfp search scan.pdf "invoice" --ocr auto --json
 ```
 
 By default, `search` uses text already present in the PDF. Add `--ocr auto` or `--ocr force` when image-only scans or damaged text layers need a searchable OCR derivative first.
+
+### Evaluation
+
+Use `pdfp eval` to run the local conversion pipeline against fixture JSON files
+and report formula recall, heading accuracy, and table recall:
+
+```sh
+pdfp eval tests/eval_fixtures/
+```
+
+Fixtures are documented in [`tests/eval_fixtures/README.md`](tests/eval_fixtures/README.md).
+Missing local corpus PDFs are reported as skipped instead of crashing the run.
 
 ### Page Operations
 

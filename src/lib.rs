@@ -1,11 +1,14 @@
+pub mod batch;
 pub mod cli;
 pub mod document;
 pub mod error;
+pub mod eval;
+pub mod figure;
+pub mod formats;
 pub mod formula;
+pub mod hybrid;
+pub mod layout;
+pub mod ocr;
 pub mod pdf;
-
-pub mod layout {
-    pub mod drawing_ops;
-    pub mod furniture;
-    pub mod table_detector;
-}
+pub mod pipeline;
+pub mod render;

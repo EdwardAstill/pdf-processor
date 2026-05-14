@@ -190,6 +190,7 @@ fn golden_scan_like_pdf_warns_about_hybrid() {
 }
 
 #[test]
+#[ignore = "requires PDF/UA fixture; run with --ignored for tagged/furniture checks"]
 fn golden_presentation_suppresses_repeated_page_furniture() {
     let root = project_root();
     let pdf =

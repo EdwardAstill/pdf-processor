@@ -38,6 +38,11 @@ pub fn process_pdf(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
         eprintln!("  processing PDF: {}", pdf_path.display());
     }
 
+    let doc = process_pdf_to_document(pdf_path, args)?;
+    write_document(&doc, pdf_path, args)
+}
+
+pub fn process_pdf_to_document(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<Document> {
     let xycut_config = XyCutConfig {
         min_horizontal_gap: args.options.min_h_gap,
         min_vertical_gap: args.options.min_v_gap,
@@ -63,7 +68,7 @@ pub fn process_pdf(pdf_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
 
     warn_on_scan_like_pages(pdf_path, args, &doc.pages, &scan_report);
     apply_hybrid_if_enabled(&mut doc, pdf_path, args, &scan_report)?;
-    write_document(&doc, pdf_path, args)
+    Ok(doc)
 }
 
 fn build_document(

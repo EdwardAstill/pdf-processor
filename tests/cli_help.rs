@@ -16,6 +16,7 @@ fn every_command_path_prints_help() {
         &["doctor"],
         &["inspect"],
         &["search"],
+        &["eval"],
         &["pages"],
         &["pages", "extract"],
         &["pages", "delete"],

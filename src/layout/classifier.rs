@@ -1,6 +1,7 @@
 use crate::document::types::{Block, BlockKind, RawPage, RawTextBlock};
 use crate::pdf::metadata::PageMetadata;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // --- Regex patterns (compiled once) ---
@@ -65,15 +66,59 @@ fn numbered_section_re() -> &'static Regex {
 }
 
 fn struct_role_to_heading_level(role: &str) -> Option<u8> {
-    match role {
-        "H1" | "Title" => Some(1),
-        "H2" => Some(2),
-        "H3" => Some(3),
-        "H4" => Some(4),
-        "H5" => Some(5),
-        "H6" => Some(6),
+    match canonical_struct_role(role).as_str() {
+        "h1" | "title" => Some(1),
+        "h2" => Some(2),
+        "h3" => Some(3),
+        "h4" => Some(4),
+        "h5" => Some(5),
+        "h6" => Some(6),
         _ => None,
     }
+}
+
+fn canonical_struct_role(role: &str) -> String {
+    role.trim().trim_start_matches('/').to_ascii_lowercase()
+}
+
+fn is_struct_artifact_role(role: &str) -> bool {
+    canonical_struct_role(role) == "artifact"
+}
+
+fn is_struct_list_item_role(role: &str) -> bool {
+    matches!(canonical_struct_role(role).as_str(), "li" | "lbody" | "lbl")
+}
+
+fn is_struct_caption_role(role: &str) -> bool {
+    canonical_struct_role(role) == "caption"
+}
+
+fn is_struct_table_cell_role(role: &str) -> bool {
+    matches!(canonical_struct_role(role).as_str(), "td" | "th")
+}
+
+fn semantic_block_kind_for(
+    block: &RawTextBlock,
+    page: &RawPage,
+    metadata: Option<&PageMetadata>,
+) -> Option<BlockKind> {
+    let role = metadata?.struct_role_for_bbox(&block.bbox)?;
+    if is_struct_artifact_role(role) {
+        return Some(BlockKind::Artifact);
+    }
+    if let Some(level) = struct_role_to_heading_level(role) {
+        return Some(BlockKind::Heading { level });
+    }
+    if is_struct_list_item_role(role) {
+        return Some(BlockKind::ListItem {
+            ordered: false,
+            depth: indent_depth(block, page),
+        });
+    }
+    if is_struct_caption_role(role) {
+        return Some(BlockKind::Caption);
+    }
+    None
 }
 
 pub struct ClassifierConfig {
@@ -179,11 +224,16 @@ impl Classifier {
             &raw_blocks,
             self.config.body_font_size,
         );
+        let semantic_table_cells = semantic_table_cells(&raw_blocks, metadata);
 
         raw_blocks
             .into_iter()
             .map(|rb| {
-                let kind = if let Some(tc) = table_cells.get(&rb.block_id) {
+                let kind = if let Some(kind) = semantic_block_kind_for(&rb, page, metadata) {
+                    kind
+                } else if let Some(tc) = semantic_table_cells.get(&rb.block_id) {
+                    tc.clone()
+                } else if let Some(tc) = table_cells.get(&rb.block_id) {
                     tc.clone()
                 } else {
                     self.classify_block_with_metadata(&rb, page, metadata)
@@ -221,6 +271,10 @@ impl Classifier {
 
         if text.is_empty() {
             return BlockKind::Paragraph; // treat empty as paragraph, will be filtered by renderer
+        }
+
+        if let Some(kind) = semantic_block_kind_for(block, page, metadata) {
+            return kind;
         }
 
         // Header/footer zone detection
@@ -282,16 +336,9 @@ impl Classifier {
             return BlockKind::Paragraph;
         }
 
-        // Heading detection — prefer struct-tree role, then font-size ratio,
-        // then bold-at-body-size as a last resort when metadata is present.
-        if let Some(md) = metadata {
-            if let Some(role) = md.struct_role_for_bbox(&block.bbox) {
-                if let Some(level) = struct_role_to_heading_level(role) {
-                    return BlockKind::Heading { level };
-                }
-            }
-        }
-
+        // Heading detection — prefer font-size ratio, then bold-at-body-size
+        // as a last resort when metadata is present. Struct-tree headings are
+        // handled before visual heuristics.
         let ratio = block.font_size / self.config.body_font_size;
         if ratio >= self.config.heading_size_ratio {
             let level = self.font_size_to_heading_level(block.font_size);
@@ -425,6 +472,86 @@ fn numbered_section_heading_level(
     }
 
     Some((depth as u8 + 1).clamp(2, 6))
+}
+
+fn semantic_table_cells(
+    raw_blocks: &[RawTextBlock],
+    metadata: Option<&PageMetadata>,
+) -> HashMap<usize, BlockKind> {
+    let Some(md) = metadata else {
+        return HashMap::new();
+    };
+
+    let cells: Vec<&RawTextBlock> = raw_blocks
+        .iter()
+        .filter(|block| {
+            md.struct_role_for_bbox(&block.bbox)
+                .is_some_and(is_struct_table_cell_role)
+        })
+        .collect();
+    if cells.len() < 2 {
+        return HashMap::new();
+    }
+
+    let row_clusters = cluster_axis(
+        cells
+            .iter()
+            .map(|block| (block.block_id, block.bbox.center_y()))
+            .collect(),
+        8.0,
+    );
+    let col_clusters = cluster_axis(
+        cells
+            .iter()
+            .map(|block| (block.block_id, block.bbox.x0))
+            .collect(),
+        14.0,
+    );
+
+    cells
+        .into_iter()
+        .filter_map(|block| {
+            Some((
+                block.block_id,
+                BlockKind::TableCell {
+                    row: *row_clusters.get(&block.block_id)?,
+                    col: *col_clusters.get(&block.block_id)?,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn cluster_axis(mut positions: Vec<(usize, f32)>, tolerance: f32) -> HashMap<usize, usize> {
+    positions.sort_by(|(_, left), (_, right)| {
+        left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut clusters = HashMap::new();
+    let mut cluster_idx = 0usize;
+    let mut cluster_center: Option<f32> = None;
+    let mut cluster_count = 0f32;
+
+    for (block_id, position) in positions {
+        match cluster_center {
+            Some(center) if (position - center).abs() > tolerance => {
+                cluster_idx += 1;
+                cluster_center = Some(position);
+                cluster_count = 1.0;
+            }
+            Some(center) => {
+                cluster_count += 1.0;
+                cluster_center = Some(center + (position - center) / cluster_count);
+            }
+            None => {
+                cluster_center = Some(position);
+                cluster_count = 1.0;
+            }
+        }
+        clusters.insert(block_id, cluster_idx);
+    }
+
+    clusters
 }
 
 #[cfg(test)]
@@ -915,6 +1042,16 @@ mod tests {
         }
     }
 
+    fn struct_tag(bbox: Bbox, role: &str) -> StructTag {
+        StructTag {
+            bbox,
+            role: role.to_string(),
+            mcids: Vec::new(),
+            alt: None,
+            actual_text: None,
+        }
+    }
+
     #[test]
     fn metadata_none_is_identical_to_classify_block() {
         let clf = classifier_with_body(10.0);
@@ -1052,11 +1189,7 @@ mod tests {
         let block = make_block(100.0, 100.0, 500.0, 115.0, "Background", 10.0);
 
         let mut md = PageMetadata::default();
-        md.struct_tags.push(StructTag {
-            bbox: block.bbox,
-            role: "H2".to_string(),
-            alt: None,
-        });
+        md.struct_tags.push(struct_tag(block.bbox, "H2"));
 
         assert_eq!(
             clf.classify_block_with_metadata(&block, &page, Some(&md)),
@@ -1071,15 +1204,75 @@ mod tests {
         let block = make_block(100.0, 100.0, 500.0, 115.0, "My Thesis", 10.0);
 
         let mut md = PageMetadata::default();
-        md.struct_tags.push(StructTag {
-            bbox: block.bbox,
-            role: "Title".to_string(),
-            alt: None,
-        });
+        md.struct_tags.push(struct_tag(block.bbox, "Title"));
 
         assert_eq!(
             clf.classify_block_with_metadata(&block, &page, Some(&md)),
             BlockKind::Heading { level: 1 }
+        );
+    }
+
+    #[test]
+    fn struct_tree_artifact_suppresses_block_before_zone_heuristics() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let block = make_block(100.0, 100.0, 500.0, 115.0, "Decorative footer text", 10.0);
+
+        let mut md = PageMetadata::default();
+        md.struct_tags.push(struct_tag(block.bbox, "Artifact"));
+
+        assert_eq!(
+            clf.classify_block_with_metadata(&block, &page, Some(&md)),
+            BlockKind::Artifact
+        );
+    }
+
+    #[test]
+    fn struct_tree_list_item_becomes_list_item() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let block = make_block(120.0, 100.0, 500.0, 115.0, "Tagged list item", 10.0);
+
+        let mut md = PageMetadata::default();
+        md.struct_tags.push(struct_tag(block.bbox, "LI"));
+
+        assert_eq!(
+            clf.classify_block_with_metadata(&block, &page, Some(&md)),
+            BlockKind::ListItem {
+                ordered: false,
+                depth: 1
+            }
+        );
+    }
+
+    #[test]
+    fn struct_tree_table_cell_roles_assign_rows_and_columns() {
+        let clf = classifier_with_body(10.0);
+        let page = page_for_classifier_tests();
+        let blocks = vec![
+            make_block_id(50.0, 100.0, 150.0, 115.0, "Name", 10.0, 0),
+            make_block_id(200.0, 100.0, 300.0, 115.0, "Age", 10.0, 1),
+            make_block_id(50.0, 130.0, 150.0, 145.0, "Alice", 10.0, 2),
+            make_block_id(200.0, 130.0, 300.0, 145.0, "30", 10.0, 3),
+        ];
+
+        let mut md = PageMetadata::default();
+        for block in &blocks {
+            md.struct_tags.push(struct_tag(block.bbox, "TD"));
+        }
+
+        let classified = clf.classify_page_with_metadata(blocks, &page, Some(&md));
+        assert_eq!(
+            classified
+                .iter()
+                .map(|block| block.kind.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                BlockKind::TableCell { row: 0, col: 0 },
+                BlockKind::TableCell { row: 0, col: 1 },
+                BlockKind::TableCell { row: 1, col: 0 },
+                BlockKind::TableCell { row: 1, col: 1 },
+            ]
         );
     }
 
@@ -1090,11 +1283,7 @@ mod tests {
         let block = make_block(100.0, 100.0, 500.0, 115.0, "Some text", 10.0);
 
         let mut md = PageMetadata::default();
-        md.struct_tags.push(StructTag {
-            bbox: block.bbox,
-            role: "NonsenseRole".to_string(),
-            alt: None,
-        });
+        md.struct_tags.push(struct_tag(block.bbox, "NonsenseRole"));
 
         // Should fall through — size is body, so Paragraph.
         assert_eq!(

@@ -9,6 +9,9 @@ Cargo.lock
 # Session-local Claude scheduler state
 .claude/
 
+# Project-local git worktrees.
+.worktrees/
+
 # Keep tests/ small and text-only. Heavy local fixtures belong in test-corpus/.
 # Regenerate arXiv PDFs with scripts/fetch-papers.sh; copy OpenDataLoader
 # goldens manually. The golden tests skip missing fixtures.

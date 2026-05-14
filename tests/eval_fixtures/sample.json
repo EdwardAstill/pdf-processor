@@ -1,0 +1,16 @@
+{
+  "pdf": "sample.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 0,
+      "expected_headings": [
+        {
+          "text": "Abstract",
+          "level": 1
+        }
+      ],
+      "expected_tables": 0
+    }
+  ]
+}
