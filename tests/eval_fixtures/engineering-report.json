@@ -18,7 +18,15 @@
           "level": 2
         }
       ],
-      "expected_tables": 1
+      "expected_tables": 1,
+      "expected_table_regions": [
+        {
+          "x0": 62.692913,
+          "y0": 561.35834,
+          "x1": 532.55597,
+          "y1": 637.8648
+        }
+      ]
     },
     {
       "page": 4,
@@ -53,7 +61,8 @@
           "level": 2
         }
       ],
-      "expected_tables": 0
+      "expected_tables": 0,
+      "expected_table_regions": []
     },
     {
       "page": 5,
@@ -68,7 +77,15 @@
           "level": 1
         }
       ],
-      "expected_tables": 1
+      "expected_tables": 1,
+      "expected_table_regions": [
+        {
+          "x0": 62.692913,
+          "y0": 75.473206,
+          "x1": 532.5785,
+          "y1": 184.14624
+        }
+      ]
     },
     {
       "page": 6,
@@ -79,7 +96,15 @@
           "level": 1
         }
       ],
-      "expected_tables": 1
+      "expected_tables": 1,
+      "expected_table_regions": [
+        {
+          "x0": 62.692913,
+          "y0": 128.83215,
+          "x1": 506.12866,
+          "y1": 311.1343
+        }
+      ]
     }
   ]
 }

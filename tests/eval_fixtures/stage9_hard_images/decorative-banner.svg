@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <rect width="1200" height="420" fill="#f4f6f8"/>
+  <g opacity="0.34">
+    <circle cx="180" cy="120" r="92" fill="#b9c5d4"/>
+    <circle cx="1010" cy="290" r="118" fill="#d7c4a3"/>
+    <path d="M0 360 C210 280 330 430 520 330 C740 215 910 310 1200 190 L1200 420 L0 420 Z" fill="#9eb7b7"/>
+  </g>
+  <g fill="none" stroke="#7a8795" stroke-width="10" opacity="0.32">
+    <path d="M100 250 L300 100 L480 230 L650 110 L870 270 L1080 120"/>
+    <path d="M160 330 L340 205 L505 310 L735 160 L940 315"/>
+  </g>
+  <text x="600" y="230" text-anchor="middle" font-family="Arial, sans-serif" font-size="64" fill="#718096" opacity="0.45">BACKGROUND GRAPHIC</text>
+</svg>

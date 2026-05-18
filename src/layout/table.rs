@@ -442,6 +442,101 @@ fn nearest_cluster(value: f32, clusters: &[f32], tolerance: f32) -> Option<usize
 pub(crate) struct TableCandidate {
     pub table: DetectedTable,
     pub source_block_ids: std::collections::BTreeSet<usize>,
+    pub evidence: TableEvidence,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[allow(dead_code)]
+pub(crate) enum TableEvidenceSource {
+    RulingGrid,
+    RulingBand,
+    TextAlignment,
+    NumericRows,
+    ExplicitRegion,
+    ExternalModel,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub(crate) struct TableEvidence {
+    pub source: TableEvidenceSource,
+    pub row_consistency: f32,
+    pub column_alignment: f32,
+    pub numeric_density: f32,
+    pub row_count: usize,
+    pub ruling_intersections: usize,
+    pub caption_score: f32,
+    pub broad_page_penalty: f32,
+    pub prose_penalty: f32,
+    pub debug_reasons: Vec<String>,
+}
+
+impl TableEvidence {
+    pub(crate) fn score(&self) -> f32 {
+        let source_bonus = match self.source {
+            TableEvidenceSource::RulingGrid => 0.18,
+            TableEvidenceSource::RulingBand => 0.12,
+            TableEvidenceSource::NumericRows => 0.10,
+            TableEvidenceSource::TextAlignment => 0.02,
+            TableEvidenceSource::ExplicitRegion | TableEvidenceSource::ExternalModel => 0.14,
+        };
+        let row_count_bonus = match self.row_count {
+            0..=3 => 0.0,
+            4..=6 => 0.04,
+            7..=9 => 0.08,
+            _ => 0.12,
+        };
+        (self.row_consistency * 0.32
+            + self.column_alignment * 0.24
+            + self.numeric_density * 0.24
+            + self.caption_score * 0.05
+            + source_bonus
+            + row_count_bonus
+            - self.broad_page_penalty
+            - self.prose_penalty)
+            .clamp(0.0, 1.0)
+    }
+
+    pub(crate) fn has_independent_table_evidence(&self) -> bool {
+        matches!(
+            self.source,
+            TableEvidenceSource::RulingGrid
+                | TableEvidenceSource::RulingBand
+                | TableEvidenceSource::NumericRows
+                | TableEvidenceSource::ExplicitRegion
+                | TableEvidenceSource::ExternalModel
+        )
+    }
+}
+
+impl TableCandidate {
+    pub(crate) fn ranking_score(&self) -> f32 {
+        let render_bonus = match self.table.render {
+            TableRender::Markdown => 0.05,
+            TableRender::Layout { .. } => 0.0,
+        };
+        self.table.confidence + render_bonus
+    }
+
+    pub(crate) fn is_broad_layout_candidate(&self, page_height: f32) -> bool {
+        matches!(self.table.render, TableRender::Layout { .. })
+            && self.table.bbox.height() >= page_height.max(1.0) * 0.35
+    }
+
+    pub(crate) fn should_emit(&self, page_width: f32, page_height: f32) -> bool {
+        if matches!(self.table.render, TableRender::Layout { .. }) && self.table.confidence < 0.45 {
+            return false;
+        }
+        if !self.is_broad_layout_candidate(page_height) {
+            return true;
+        }
+        let broad_width = self.table.bbox.width() >= page_width.max(1.0) * 0.70;
+        if !broad_width {
+            return true;
+        }
+        self.evidence.has_independent_table_evidence()
+            && self.table.confidence >= 0.72
+            && self.evidence.prose_penalty < 0.12
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -492,9 +587,13 @@ pub(crate) fn detect_coordinate_tables(
 
         let header_start = find_header_start(&rows, start);
         let region_rows = &rows[header_start..end];
-        if let Some(candidate) =
-            build_table_candidate(region_rows, start - header_start, page_width, mode)
-        {
+        if let Some(candidate) = build_table_candidate(
+            region_rows,
+            start - header_start,
+            page_width,
+            mode,
+            TableEvidenceSource::NumericRows,
+        ) {
             candidates.push(candidate);
         }
         idx = end;
@@ -502,6 +601,7 @@ pub(crate) fn detect_coordinate_tables(
 
     if candidates.is_empty() {
         candidates.extend(detect_alignment_tables(&rows, page_width, mode));
+        candidates.extend(detect_captioned_table_runs(&rows, page_width, mode));
     }
 
     suppress_overlapping_tables(candidates)
@@ -688,6 +788,166 @@ fn detect_alignment_tables(
     candidates
 }
 
+fn detect_captioned_table_runs(
+    rows: &[WordRow<'_>],
+    page_width: f32,
+    mode: TableMode,
+) -> Vec<TableCandidate> {
+    let mut candidates = Vec::new();
+    let mut idx = 0usize;
+    while idx < rows.len() {
+        if !looks_like_table_caption_row(&rows[idx]) {
+            idx += 1;
+            continue;
+        }
+
+        let start = idx + 1;
+        let mut end = start;
+        while end < rows.len() {
+            if end > start {
+                let gap = rows[end].baseline_y - rows[end - 1].baseline_y;
+                if gap > median_font_size(&rows[end]) * 3.4 {
+                    break;
+                }
+            }
+            if end > start && looks_like_table_caption_row(&rows[end]) {
+                break;
+            }
+            if end > start + 2 && looks_like_post_table_section_break(&rows[end]) {
+                break;
+            }
+            if end > start + 3 && looks_like_post_table_sentence(&rows[end]) {
+                break;
+            }
+            if end > start + 3 && looks_like_prose_table_row(&rows[end]) {
+                break;
+            }
+            end += 1;
+            if end - start >= 18 {
+                break;
+            }
+        }
+
+        if end.saturating_sub(start) >= 3 {
+            if let Some(candidate) =
+                build_captioned_table_candidate(&rows[start..end], page_width, mode)
+            {
+                candidates.push(candidate);
+            }
+        }
+        idx = end.max(idx + 1);
+    }
+    candidates
+}
+
+fn looks_like_table_caption_row(row: &WordRow<'_>) -> bool {
+    let text = row_text(row).to_ascii_lowercase();
+    text.contains("table ") && text.contains(':')
+}
+
+fn looks_like_post_table_section_break(row: &WordRow<'_>) -> bool {
+    let text = row_text(row);
+    let mut words = text.split_whitespace();
+    let Some(first) = words.next() else {
+        return false;
+    };
+    let Some(second) = words.next() else {
+        return false;
+    };
+    first
+        .trim_matches(|ch: char| matches!(ch, '.' | ')' | '('))
+        .chars()
+        .all(|ch| ch.is_ascii_digit())
+        && second
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
+fn looks_like_post_table_sentence(row: &WordRow<'_>) -> bool {
+    let text = row_text(row);
+    let lower = text.to_ascii_lowercase();
+    row.words.len() >= 7
+        && text.trim_end().ends_with('.')
+        && ["these ", "this ", "the ", "values "]
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
+}
+
+fn build_captioned_table_candidate(
+    rows: &[WordRow<'_>],
+    page_width: f32,
+    mode: TableMode,
+) -> Option<TableCandidate> {
+    let bbox = rows
+        .iter()
+        .map(|row| row.bbox)
+        .reduce(|bbox, row_bbox| bbox.union(&row_bbox))?;
+    let markdown_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| row.words.iter().map(|word| word.text.clone()).collect())
+        .collect();
+    let numeric_density = rows
+        .iter()
+        .flat_map(|row| row.words.iter())
+        .filter(|word| looks_like_table_value(&word.text))
+        .count() as f32
+        / rows.iter().map(|row| row.words.len()).sum::<usize>().max(1) as f32;
+    let row_consistency = word_row_width_consistency(rows);
+    let width_ratio = rows
+        .iter()
+        .map(|row| row.bbox.width())
+        .fold(0.0f32, f32::max)
+        / page_width.max(1.0);
+    let evidence = TableEvidence {
+        source: TableEvidenceSource::ExplicitRegion,
+        row_consistency,
+        column_alignment: (row_consistency * 0.65 + width_ratio.min(1.0) * 0.35).clamp(0.0, 1.0),
+        numeric_density,
+        row_count: rows.len(),
+        ruling_intersections: 0,
+        caption_score: 0.95,
+        broad_page_penalty: 0.0,
+        prose_penalty: 0.0,
+        debug_reasons: vec!["captioned-table-run".to_string()],
+    };
+    let confidence = evidence.score().max(0.48);
+    let layout_text = render_layout_text(rows);
+    let render = match mode {
+        TableMode::Off => return None,
+        TableMode::Native => TableRender::Markdown,
+        TableMode::Layout | TableMode::Auto => TableRender::Layout { text: layout_text },
+    };
+    let source_block_ids = rows
+        .iter()
+        .flat_map(|row| row.words.iter().map(|word| word.block_id))
+        .collect();
+
+    Some(TableCandidate {
+        table: DetectedTable {
+            bbox,
+            rows: markdown_rows,
+            confidence,
+            render,
+        },
+        source_block_ids,
+        evidence,
+    })
+}
+
+fn word_row_width_consistency(rows: &[WordRow<'_>]) -> f32 {
+    let mut counts = std::collections::BTreeMap::new();
+    for row in rows {
+        *counts.entry(row.words.len()).or_insert(0usize) += 1;
+    }
+    counts
+        .values()
+        .copied()
+        .max()
+        .map(|max| max as f32 / rows.len().max(1) as f32)
+        .unwrap_or(0.0)
+}
+
 fn looks_like_alignment_row(row: &WordRow<'_>) -> bool {
     if row.words.len() < 3 || row.words.len() > 16 {
         return false;
@@ -748,7 +1008,13 @@ fn build_alignment_table_candidate(
         return None;
     }
 
-    build_table_candidate(rows, 1.min(rows.len() - 1), page_width, mode)
+    build_table_candidate(
+        rows,
+        1.min(rows.len() - 1),
+        page_width,
+        mode,
+        TableEvidenceSource::TextAlignment,
+    )
 }
 
 fn average_column_centers(rows: &[&WordRow<'_>], column_count: usize) -> Option<Vec<f32>> {
@@ -777,6 +1043,7 @@ fn build_table_candidate(
     first_data_idx: usize,
     page_width: f32,
     mode: TableMode,
+    evidence_source: TableEvidenceSource,
 ) -> Option<TableCandidate> {
     let data_rows = &rows[first_data_idx..];
     let mut count_histogram = std::collections::BTreeMap::new();
@@ -787,6 +1054,9 @@ fn build_table_candidate(
         .into_iter()
         .max_by_key(|(cols, hits)| (*hits, *cols))?;
     if column_count < 3 || matching_rows < 3 {
+        return None;
+    }
+    if prose_page_like_table_run(data_rows) {
         return None;
     }
 
@@ -815,16 +1085,24 @@ fn build_table_candidate(
         table_rows.push(assign_row_to_columns(row, &centers));
     }
 
-    let confidence = table_confidence(data_rows, column_count, matching_rows, page_width);
+    let evidence = table_evidence(
+        data_rows,
+        column_count,
+        matching_rows,
+        page_width,
+        evidence_source,
+    );
+    let confidence = evidence.score();
     let bbox = rows
         .iter()
         .map(|row| row.bbox)
         .reduce(|bbox, row_bbox| bbox.union(&row_bbox))?;
     let layout_text = render_layout_text(rows);
+    let has_irregular_rows = data_rows.iter().any(|row| row.words.len() != column_count);
     let render = match mode {
         TableMode::Layout => TableRender::Layout { text: layout_text },
         TableMode::Native => TableRender::Markdown,
-        TableMode::Auto if confidence >= 0.70 => TableRender::Markdown,
+        TableMode::Auto if confidence >= 0.70 && !has_irregular_rows => TableRender::Markdown,
         TableMode::Auto => TableRender::Layout { text: layout_text },
         TableMode::Off => return None,
     };
@@ -842,7 +1120,19 @@ fn build_table_candidate(
             render,
         },
         source_block_ids,
+        evidence,
     })
+}
+
+fn prose_page_like_table_run(rows: &[WordRow<'_>]) -> bool {
+    if rows.len() < 8 {
+        return false;
+    }
+    let prose_rows = rows
+        .iter()
+        .filter(|row| looks_like_prose_table_row(row))
+        .count();
+    prose_rows * 10 >= rows.len() * 3
 }
 
 fn build_header(rows: &[WordRow<'_>], first_data_idx: usize, centers: &[f32]) -> Vec<String> {
@@ -915,12 +1205,13 @@ fn nearest_center(value: f32, centers: &[f32]) -> Option<usize> {
         .map(|(idx, _)| idx)
 }
 
-fn table_confidence(
+fn table_evidence(
     data_rows: &[WordRow<'_>],
     column_count: usize,
     matching_rows: usize,
     page_width: f32,
-) -> f32 {
+    evidence_source: TableEvidenceSource,
+) -> TableEvidence {
     let row_consistency = matching_rows as f32 / data_rows.len().max(1) as f32;
     let numeric_density = data_rows
         .iter()
@@ -937,14 +1228,28 @@ fn table_confidence(
         .map(|row| row.bbox.width())
         .fold(0.0f32, f32::max)
         / page_width.max(1.0);
-    let mut confidence =
-        (row_consistency * 0.45 + numeric_density * 0.35 + width_ratio.min(1.0) * 0.20)
-            .clamp(0.0, 1.0)
-            + (column_count >= 6) as u8 as f32 * 0.05;
+    let mut column_alignment = (row_consistency * 0.70 + width_ratio.min(1.0) * 0.30)
+        + (column_count >= 6) as u8 as f32 * 0.05;
     if data_rows.iter().any(|row| row.words.len() != column_count) {
-        confidence = confidence.min(0.68);
+        column_alignment = column_alignment.min(0.68);
     }
-    confidence
+    let prose_rows = data_rows
+        .iter()
+        .filter(|row| looks_like_prose_table_row(row))
+        .count();
+    let prose_penalty = prose_rows as f32 / data_rows.len().max(1) as f32 * 0.25;
+    TableEvidence {
+        source: evidence_source,
+        row_consistency,
+        column_alignment: column_alignment.clamp(0.0, 1.0),
+        numeric_density,
+        row_count: data_rows.len(),
+        ruling_intersections: 0,
+        caption_score: 0.0,
+        broad_page_penalty: 0.0,
+        prose_penalty,
+        debug_reasons: vec![format!("{evidence_source:?}")],
+    }
 }
 
 fn render_layout_text(rows: &[WordRow<'_>]) -> String {
@@ -979,15 +1284,50 @@ fn render_layout_text(rows: &[WordRow<'_>]) -> String {
 
 fn suppress_overlapping_tables(candidates: Vec<TableCandidate>) -> Vec<TableCandidate> {
     let mut kept: Vec<TableCandidate> = Vec::new();
-    'candidate: for candidate in candidates {
-        for existing in &kept {
-            if overlap_ratio(candidate.table.bbox, existing.table.bbox) > 0.65 {
-                continue 'candidate;
+    for candidate in candidates {
+        let mut replacement = Some(candidate);
+        for existing in &mut kept {
+            let candidate_ref = replacement.as_ref().expect("candidate still available");
+            if overlap_ratio(candidate_ref.table.bbox, existing.table.bbox) > 0.65 {
+                if table_candidate_cmp(candidate_ref, existing).is_gt() {
+                    *existing = replacement.take().expect("candidate still available");
+                }
+                break;
             }
         }
-        kept.push(candidate);
+        if let Some(candidate) = replacement {
+            kept.push(candidate);
+        }
     }
+    kept.sort_by(|left, right| {
+        left.table
+            .bbox
+            .y0
+            .partial_cmp(&right.table.bbox.y0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                left.table
+                    .bbox
+                    .x0
+                    .partial_cmp(&right.table.bbox.x0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
     kept
+}
+
+fn table_candidate_cmp(left: &TableCandidate, right: &TableCandidate) -> std::cmp::Ordering {
+    left.ranking_score()
+        .partial_cmp(&right.ranking_score())
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            right
+                .table
+                .bbox
+                .area()
+                .partial_cmp(&left.table.bbox.area())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 fn overlap_ratio(a: Bbox, b: Bbox) -> f32 {

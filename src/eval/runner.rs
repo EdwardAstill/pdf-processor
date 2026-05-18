@@ -24,7 +24,7 @@ fn run_one(fixture: &FixtureFile) -> DocResult {
 
     let args = ConvertArgs {
         input: pdf_path.to_string_lossy().into_owned(),
-        options: eval_convert_options(),
+        options: eval_convert_options(&doc_name),
     };
 
     let document = match process_pdf_to_document(&pdf_path, &args) {
@@ -57,10 +57,28 @@ fn run_one(fixture: &FixtureFile) -> DocResult {
     }
 }
 
-fn eval_convert_options() -> ConvertOptions {
+fn eval_convert_options(doc_name: &str) -> ConvertOptions {
+    let safe_name = doc_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let output_dir = std::env::temp_dir()
+        .join("pdfp-eval-media")
+        .join(std::process::id().to_string())
+        .join(safe_name);
+    let _ = std::fs::remove_dir_all(&output_dir);
+
     ConvertOptions {
-        no_images: true,
-        figures: FigureMode::None,
+        output: Some(output_dir),
+        no_images: false,
+        figures: FigureMode::Snapshot,
+        figure_dpi: 96,
         ..ConvertOptions::default()
     }
 }

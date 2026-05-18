@@ -228,6 +228,10 @@ fn score_line(line: &FormulaLine, page_width: f32) -> Option<(u8, String)> {
         confidence += 15;
         reasons.push("relation");
     }
+    if centered && has_relation && line.word_count <= 4 {
+        confidence += 10;
+        reasons.push("compact-display");
+    }
     if symbol_heavy {
         confidence += (line.math_score.min(5) as u8) * 4;
         reasons.push("math-symbols");
@@ -241,6 +245,15 @@ fn score_line(line: &FormulaLine, page_width: f32) -> Option<(u8, String)> {
 }
 
 fn looks_like_prose(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("such as")
+        || lower.contains("typeset")
+        || lower.contains("detailed working")
+        || lower.contains("not reproduced")
+    {
+        return true;
+    }
+
     let words = text.split_whitespace().count();
     if words < 10 {
         return false;

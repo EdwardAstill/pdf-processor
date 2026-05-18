@@ -1,0 +1,23 @@
+{
+  "pdf": "../../example/pdf/golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-06_Brochure.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 0,
+      "expected_headings": [],
+      "expected_tables": 0,
+      "expected_meaningful_figures": 1,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    },
+    {
+      "page": 2,
+      "expected_formula_count": 0,
+      "expected_headings": [],
+      "expected_tables": 0,
+      "expected_meaningful_figures": 2,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    }
+  ]
+}

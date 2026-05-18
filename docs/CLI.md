@@ -47,7 +47,7 @@ pdfp doctor
 | Check runtime dependencies | `pdfp doctor` | Human summary or JSON |
 | Inspect PDF pages | `pdfp inspect input.pdf` | Human summary or JSON, optionally OCR-assisted |
 | Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON, optionally OCR-assisted |
-| Evaluate extraction quality | `pdfp eval fixtures/` | Formula, heading, and table metrics |
+| Evaluate extraction quality | `pdfp eval fixtures/` | Formula, heading, table, and image metrics |
 | Extract/delete/split/reorder/merge pages | `pdfp pages ...` | New PDF files |
 | Create 2-up or booklet layouts | `pdfp impose ...` | New PDF files |
 | Resize pages | `pdfp page resize ...` | New PDF file |
@@ -170,7 +170,7 @@ pdfp convert catalogue.pdf -o out/ --tables layout
 pdfp convert catalogue.pdf -o out/ --tables off
 ```
 
-`pdfp` reconstructs born-digital tables from MuPDF word coordinates plus rendered rule-line geometry. This works best when the PDF already has a usable text layer, such as product catalogues and standards with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes `table_region` bboxes, rows, confidence, and render mode under `debug/tables/`.
+`pdfp` reconstructs born-digital tables from MuPDF word coordinates plus rendered rule-line geometry. This works best when the PDF already has a usable text layer, such as product catalogues and standards with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes `table_region` bboxes, rows, confidence, render mode, and table evidence under `debug/tables/`.
 
 OCR is a separate concern. If the page is a scan with no usable text layer, use `--ocr auto` or `--ocr force` before expecting table reconstruction to work.
 
@@ -320,17 +320,18 @@ By default, search only sees text embedded in the PDF. Add `--ocr auto` to let s
 
 ## Evaluate Quality
 
-Run the local conversion pipeline against fixture JSON files and report quality
-metrics:
+Run the local conversion pipeline against fixture JSON files and report recall,
+precision, false-positive counts, and image/figure retention:
 
 ```sh
 pdfp eval tests/eval_fixtures/
 ```
 
-Each fixture JSON names a PDF and the expected formula count, headings, and
-table presence for selected pages. Missing PDFs are skipped with a clear message,
-which keeps large local corpora out of the repository while preserving the
-evaluation contract. See `tests/eval_fixtures/README.md` for the schema.
+Each fixture JSON names a PDF and the expected formula count, headings, table
+presence/regions, and image/figure expectations for selected pages. Missing PDFs
+are skipped with a clear message, which keeps large local corpora out of the
+repository while preserving the evaluation contract. See
+`tests/eval_fixtures/README.md` for the schema and Stage 8/9 benchmark notes.
 
 ## Page Operations
 

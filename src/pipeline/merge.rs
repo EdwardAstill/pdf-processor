@@ -36,21 +36,56 @@ pub(super) fn bbox_overlap_smaller(a: Bbox, b: Bbox) -> f32 {
     intersection / a.area().min(b.area()).max(1.0)
 }
 
-/// Greedy suppression: keep the first candidate; drop later ones that cover
-/// more than 65% of an already-kept candidate's region.
+/// Greedy suppression: when candidates claim the same region, keep the best
+/// table evidence rather than whichever detector happened to run first.
 pub(super) fn suppress_overlapping_table_candidates(
     candidates: Vec<TableCandidate>,
 ) -> Vec<TableCandidate> {
     let mut kept: Vec<TableCandidate> = Vec::new();
-    'candidate: for candidate in candidates {
-        for existing in &kept {
-            if bbox_overlap_smaller(candidate.table.bbox, existing.table.bbox) > 0.65 {
-                continue 'candidate;
+    for candidate in candidates {
+        let mut replacement = Some(candidate);
+        for existing in &mut kept {
+            let candidate_ref = replacement.as_ref().expect("candidate still available");
+            if bbox_overlap_smaller(candidate_ref.table.bbox, existing.table.bbox) > 0.65 {
+                if table_candidate_cmp(candidate_ref, existing).is_gt() {
+                    *existing = replacement.take().expect("candidate still available");
+                }
+                break;
             }
         }
-        kept.push(candidate);
+        if let Some(candidate) = replacement {
+            kept.push(candidate);
+        }
     }
+    kept.sort_by(|left, right| {
+        left.table
+            .bbox
+            .y0
+            .partial_cmp(&right.table.bbox.y0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| {
+                left.table
+                    .bbox
+                    .x0
+                    .partial_cmp(&right.table.bbox.x0)
+                    .unwrap_or(Ordering::Equal)
+            })
+    });
     kept
+}
+
+fn table_candidate_cmp(left: &TableCandidate, right: &TableCandidate) -> Ordering {
+    left.ranking_score()
+        .partial_cmp(&right.ranking_score())
+        .unwrap_or(Ordering::Equal)
+        .then_with(|| {
+            right
+                .table
+                .bbox
+                .area()
+                .partial_cmp(&left.table.bbox.area())
+                .unwrap_or(Ordering::Equal)
+        })
 }
 
 /// Build the bbox list that the formula detector should treat as forbidden
@@ -78,6 +113,9 @@ pub(super) fn suppress_text_covered_by_tables(
     blocks
         .into_iter()
         .filter(|block| {
+            if matches!(block.kind, BlockKind::Heading { .. }) {
+                return true;
+            }
             !candidates.iter().any(|candidate| {
                 candidate.source_block_ids.contains(&block.id)
                     || bbox_overlap_ratio(block.bbox, candidate.table.bbox) > 0.55
@@ -287,6 +325,7 @@ mod tests {
     use super::*;
     use crate::document::types::{Bbox, Block, BlockKind, DetectedTable, TableRender};
     use crate::formula::detect::{FormulaCandidate, FormulaStatus};
+    use crate::layout::table::{TableEvidence, TableEvidenceSource};
     use std::collections::BTreeSet;
 
     fn paragraph(id: usize, bbox: Bbox, reading_order: usize, text: &str) -> Block {
@@ -331,6 +370,18 @@ mod tests {
                 render: TableRender::Markdown,
             },
             source_block_ids: source_ids.iter().copied().collect::<BTreeSet<_>>(),
+            evidence: TableEvidence {
+                source: TableEvidenceSource::NumericRows,
+                row_consistency: confidence,
+                column_alignment: confidence,
+                numeric_density: confidence,
+                row_count: 4,
+                ruling_intersections: 0,
+                caption_score: 0.0,
+                broad_page_penalty: 0.0,
+                prose_penalty: 0.0,
+                debug_reasons: vec!["test".to_string()],
+            },
         }
     }
 
@@ -430,8 +481,7 @@ mod tests {
         let pretend = paragraph(99, Bbox::new(120.0, 140.0, 500.0, 162.0), 0, "F = ma");
         let overlapping = paragraph(42, Bbox::new(121.0, 141.0, 499.0, 161.0), 0, "F = ma");
 
-        let filtered =
-            suppress_text_covered_by_formulas(vec![overlapping.clone()], &[pretend]);
+        let filtered = suppress_text_covered_by_formulas(vec![overlapping.clone()], &[pretend]);
 
         assert_eq!(filtered.len(), 1);
     }
@@ -465,16 +515,16 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_table_candidates_keep_the_first_seen() {
-        let first = table_candidate(Bbox::new(80.0, 100.0, 520.0, 240.0), 0.9, &[]);
-        let near_duplicate = table_candidate(Bbox::new(82.0, 102.0, 518.0, 238.0), 0.88, &[]);
+    fn overlapping_table_candidates_keep_the_best_candidate() {
+        let broad_first = table_candidate(Bbox::new(60.0, 80.0, 540.0, 320.0), 0.62, &[]);
+        let strong_narrow = table_candidate(Bbox::new(82.0, 102.0, 518.0, 238.0), 0.88, &[]);
         let disjoint = table_candidate(Bbox::new(80.0, 400.0, 520.0, 540.0), 0.9, &[]);
 
-        let kept = suppress_overlapping_table_candidates(vec![first, near_duplicate, disjoint]);
+        let kept =
+            suppress_overlapping_table_candidates(vec![broad_first, strong_narrow, disjoint]);
 
         assert_eq!(kept.len(), 2);
-        // first kept by full bbox; disjoint kept because no overlap
-        assert_eq!(kept[0].table.bbox, Bbox::new(80.0, 100.0, 520.0, 240.0));
+        assert_eq!(kept[0].table.bbox, Bbox::new(82.0, 102.0, 518.0, 238.0));
         assert_eq!(kept[1].table.bbox, Bbox::new(80.0, 400.0, 520.0, 540.0));
     }
 
@@ -482,8 +532,7 @@ mod tests {
     fn merge_text_and_formulas_interleaves_by_y_and_renumbers() {
         let text_a = paragraph(1, Bbox::new(0.0, 100.0, 100.0, 120.0), 0, "a");
         let text_b = paragraph(2, Bbox::new(0.0, 300.0, 100.0, 320.0), 1, "b");
-        let formula_mid =
-            formula_block(900, Bbox::new(0.0, 200.0, 100.0, 220.0), "x = 1");
+        let formula_mid = formula_block(900, Bbox::new(0.0, 200.0, 100.0, 220.0), "x = 1");
 
         let merged = merge_text_and_formulas(vec![text_a, text_b], vec![formula_mid]);
 

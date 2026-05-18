@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560">
+  <rect width="1000" height="560" fill="#ffffff"/>
+  <rect x="110" y="80" width="800" height="360" fill="#f8fafc" stroke="#263238" stroke-width="4"/>
+  <g stroke="#d0d7de" stroke-width="2">
+    <line x1="110" y1="152" x2="910" y2="152"/>
+    <line x1="110" y1="224" x2="910" y2="224"/>
+    <line x1="110" y1="296" x2="910" y2="296"/>
+    <line x1="110" y1="368" x2="910" y2="368"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="30" fill="#263238">
+    <text x="120" y="54">Parser stage throughput</text>
+    <text x="135" y="486">extract</text>
+    <text x="338" y="486">layout</text>
+    <text x="546" y="486">merge</text>
+    <text x="742" y="486">render</text>
+  </g>
+  <rect x="155" y="185" width="92" height="255" fill="#2f80ed"/>
+  <rect x="360" y="240" width="92" height="200" fill="#27ae60"/>
+  <rect x="565" y="292" width="92" height="148" fill="#f2994a"/>
+  <rect x="770" y="322" width="92" height="118" fill="#9b51e0"/>
+  <polyline points="200,180 405,235 610,286 815,318" fill="none" stroke="#111827" stroke-width="6"/>
+</svg>

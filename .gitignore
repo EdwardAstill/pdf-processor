@@ -21,6 +21,7 @@ Cargo.lock
 /papers/
 
 # Generated example corpora and converter outputs can be large and image-heavy.
+/example/pdf
 /example/pdf/
 /example/markdown/
 *_extracted/

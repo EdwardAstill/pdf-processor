@@ -88,13 +88,58 @@ Without the precision extension, heading and formula tuning can hit the recall t
 - `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings`
 - No regression in `cargo test --test golden --features pdfium-metadata -- --ignored golden_presentation_suppresses_repeated_page_furniture`
 
-### Stage 9 - Image And Vector Handling
+### Stage 8.5 - Table Precision And Candidate Refactor
 
-**Goal:** Complete the original roadmap Task 7 after the text/formula/table baseline is stable.
+**Goal:** Preserve the Stage 8 table recall floor while removing broad false-positive table regions before image/vector work depends on region boundaries.
+
+**Reason:** Stage 8 kept table recall at `4/4`, but the new precision metric exposed weak table precision: engineering-calc is `1/2` table pages and engineering-report is `3/4` table pages. Debug output shows the false positives are broad `Layout` table candidates, not tight table regions. That should be fixed before Stage 9 starts figure/vector region handling.
 
 **Benchmark Targets:**
 
-Stage 9 introduces metrics that `pdfp eval` does not currently capture. The Stage 8 numbers (recall + precision for headings, formulas, tables) become the FLOOR — Stage 9 must not regress any of them.
+Stage 8.5 keeps all Stage 8 heading/formula floors and adds a table precision recovery floor:
+
+| metric | minimum | stretch | rationale |
+|---|---|---|---|
+| table recall (combined) | 4/4 | 4/4 | No regression from Stage 8. |
+| table page precision (combined) | 4/4 on tracked evaluated pages | 4/4 plus no broad debug-only table regions on fixture non-table pages | Remove the two tracked false-positive table pages before downstream region work. |
+| table region precision | metric ships first; baseline this stage | >=75% once expected boxes are recorded | Page-level precision is not enough to catch broad regions on true-table pages. |
+| heading/formula floors | Stage 8 minimums hold | Stage 8 measured numbers hold | Table tuning must not undo Stage 8 gains. |
+
+**Scope:**
+
+- Add table candidate provenance/evidence fields for ruling grid, ruling band, text alignment/network, numeric rows, explicit regions, and optional external-model candidates.
+- Centralize table scoring instead of mixing fixed geometry confidence with coordinate-table confidence.
+- Replace first-seen overlap suppression with best-candidate arbitration.
+- Drop or quarantine broad page-like layout candidates unless they have independent table evidence.
+- Extend fixtures to optionally record expected table boxes and evaluate IoU-based table region precision.
+
+**Acceptance:**
+
+- `pdfp eval tests/eval_fixtures/` reports current Stage 8 heading/formula floors and table recall `4/4`.
+- Table page precision on tracked evaluated pages improves from combined `4/6` to at least `4/4`.
+- Eval can report table region precision when expected boxes are present.
+- Broad page-like layout candidates are not emitted as normal table blocks on engineering-calc page 2 or engineering-report page 4.
+- `cargo fmt --check`
+- `cargo test`
+- `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings`
+
+**Measured Result (2026-05-15):**
+
+- heading accuracy `17/21`, formula recall `13/13`, table page recall `4/4`
+- table page precision `4/4`, improved from Stage 8 `4/6`
+- table region recall `4/4` and table region precision `4/5` on recorded boxes
+- engineering-calc page 2 and engineering-report page 4 emit no normal table blocks
+
+### Stage 9 - Image And Vector Handling
+
+**Goal:** Complete the original roadmap Task 7 after the text/formula/table baseline and table precision refactor are stable.
+
+**Benchmark Targets:**
+
+Stage 9 introduces image/vector metrics that were not captured by the original
+`pdfp eval` command. The Stage 8 heading/formula numbers and Stage 8.5 table
+recall/precision numbers become the FLOOR — Stage 9 must not regress any of
+them.
 
 New metrics to add to `pdfp eval` (Stage 9 sub-deliverable, ships first):
 
@@ -105,20 +150,66 @@ New metrics to add to `pdfp eval` (Stage 9 sub-deliverable, ships first):
 | figure-caption pairing rate | figures with caption attached / figures total | baseline this stage, then >=70% |
 | vector-only region acknowledgement | vector-heavy regions tagged as "vector-only, snapshot-or-skip" / total such regions | baseline-only this stage; numeric target deferred |
 
-Targets in the table are *proposed* and need re-anchoring once the new metrics emit numbers on the existing fixtures. The proposal is: extend eval, run on the tracked fixtures, record actual baselines in `.warden/research/stage7-5-baseline/BASELINE.md` (append a Stage 9 section), then lock targets from those baselines in this doc before any heuristic tuning.
+Stage 9 kickoff measurement on 2026-05-15:
+
+- `pdfp eval` now enables snapshot figure extraction into a temp output
+  directory and reports decorative suppression, meaningful figure retention,
+  figure-caption pairing, and vector-only acknowledgement when fixture
+  expectations are present.
+- Three harder local fixture JSON files were added for the ignored
+  `example/pdf/` corpus:
+  `attention.pdf`, `PDFUA-Ref-2-06_Brochure.pdf`, and vector-heavy
+  `resnet.pdf`.
+- Current non-zero image baseline is meaningful figure retention `6/6`,
+  figure-caption pairing `3/3`, and vector-only acknowledgement `1/1` on the
+  sampled hard pages.
+- Decorative suppression is implemented in the metric layer but still has `0/0`
+  tracked fixture expectations. Do not claim the decorative target until at
+  least one deliberately labeled non-zero decorative page is added.
+
+Stage 9 hard-fixture update on 2026-05-15:
+
+- Added a reproducible generated fixture pack:
+  `scripts/generate-eval-fixtures.sh stage9-hard-images`.
+- The generated PDF is ignored at `test-corpus/eval/stage9-hard-images.pdf`;
+  tracked Typst/SVG sources live under
+  `tests/eval_fixtures/stage9_hard_images/`.
+- Generated pack result: decorative suppression `1/2`, meaningful figure
+  retention `2/3`, figure-caption pairing `2/3`, vector-only acknowledgement
+  `0/1`.
+- Combined hard image result with the kickoff fixtures: decorative suppression
+  `1/2`, meaningful figure retention `8/9`, figure-caption pairing `5/6`,
+  vector-only acknowledgement `1/2`.
+- These are now the Stage 9 tuning signals. Do not use the kickoff-only `6/6`,
+  `3/3`, `1/1` image numbers as release floors without the generated hard pack.
+
+Targets above remain proposed for the full Stage 9 tuning pass. Re-anchor the
+decorative target after the non-zero decorative fixture is added, then lock the
+measured floors in `.warden/research/stage7-5-baseline/BASELINE.md` before
+heuristic tuning.
 
 **Scope:**
 
-- Add configurable thresholds for tiny decorative image suppression.
+- Suppress uncaptioned decorative raster regions without losing captioned
+  meaningful figures.
 - Suppress repeated edge/furniture images.
-- Keep meaningful embedded figures.
-- Investigate whether vector-heavy figures can be represented by rendered page-region snapshots rather than raw vector extraction.
-- Document vector-only limits if reliable vector bounds are not exposed by the available PDF stack.
+- Keep meaningful embedded figures above the current hard-pack `8/9` combined
+  baseline.
+- Investigate why the generated vector-only candidate appears in debug JSON but
+  is not acknowledged as a rendered figure block.
+- Document vector-only limits if reliable vector bounds are not exposed by the
+  available PDF stack.
 
 **Acceptance:**
 
-- Stage 8 floors hold (heading/formula/table recall and precision do not regress).
-- The new Stage 9 metrics ship and produce numbers on both tracked fixtures.
+- Stage 8 and Stage 8.5 floors hold (heading/formula/table recall and precision do not regress).
+- The new Stage 9 metrics ship and produce numbers on the tracked engineering
+  fixtures plus harder local image fixtures.
+- Meaningful figure retention stays at or above the kickoff baseline `6/6`,
+  figure-caption pairing stays at or above `3/3`, and vector-only
+  acknowledgement stays at or above `1/1` where expected.
+- At least one non-zero decorative-image fixture is added before claiming
+  decorative target performance.
 - Stage 9 hits the targets above for decorative-image suppression and meaningful-figure retention.
 - Existing front-matter image tests stay green.
 - `cargo test render::markdown::tests::scholarly_front_matter_drops_decorative_images_and_keeps_captioned_figure`
@@ -133,8 +224,12 @@ Targets in the table are *proposed* and need re-anchoring once the new metrics e
 
 Stage 10 sets no new numeric targets — it freezes the Stage 9 end-state and forces the documentation to match. Specifically:
 
-- Every Stage 8 and Stage 9 metric is at or above its Stage 9 acceptance number — this is a hard floor.
+- Every Stage 8, Stage 8.5, and Stage 9 metric is at or above its recorded acceptance number — this is a hard floor.
 - The README quality matrix quotes the actual numbers from `pdfp eval` on the tracked fixtures, not aspirational labels. The "good / improving / requires OCR / limited" bands each carry the most recent measured numbers (heading accuracy %, formula recall %, table recall %).
+- The public tool-comparison table stays honest: `docs/TOOL_COMPARISON.md`
+  separates measured `pdfp` fixture numbers from unmeasured third-party
+  capability claims, and does not claim broad parity until sidecar/API runs are
+  measured on the same fixtures.
 - `pdfp eval` exit code is non-zero when any fixture falls below its recorded floor — so CI / pre-release runs gate on the numbers rather than on a human eyeballing the output.
 
 **Scope:**
@@ -154,6 +249,8 @@ Stage 10 sets no new numeric targets — it freezes the Stage 9 end-state and fo
 - `cargo clippy --all-targets --features "pdfium-metadata onnx-ocr" -- -D warnings`
 - `git ls-files ':(glob)**/*.png' ':(glob)**/*.pdf' | wc -l` remains `0`
 - README and `docs/CLI.md` include the quality matrix and eval workflow, with measured numbers from `pdfp eval`.
+- `docs/TOOL_COMPARISON.md` includes current measured `pdfp` numbers, sourced
+  external tool capabilities, and a list of still-unmeasured comparison runs.
 - `pdfp eval tests/eval_fixtures/` returns non-zero on any regression below the Stage 9 floor.
 
 ## Reconsolidation Checklist

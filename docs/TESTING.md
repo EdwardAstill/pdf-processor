@@ -47,7 +47,13 @@ bash scripts/example-audit.sh
 # → writes target/example-audit/summary.md with quality, table, formula, figure, and scan signals
 
 bash scripts/sidecar-audit.sh
-# → writes target/sidecar-audit/summary.md; optional Docling/gmft/img2table/UniMERNet backends skip cleanly when unavailable
+# → writes target/sidecar-audit/summary.md; deterministic peers and optional sidecars skip cleanly when unavailable
+
+scripts/generate-eval-fixtures.sh stage9-hard-images
+# → writes ignored test-corpus/eval/stage9-hard-images.pdf from tracked Typst/SVG sources
+
+cargo run --quiet -- eval tests/eval_fixtures/
+# → reports heading/formula/table floors plus hard image/vector fixture metrics
 
 cargo clippy --all-targets -- -D warnings
 # → clean
@@ -148,7 +154,7 @@ Current processor limitations:
   - `--hybrid off` produces byte-identical output to the Phase 1 snapshot — regression guard across all later phases.
 - **Corpus sweep** — invokes the built binary against 13 real PDFs (arXiv ML papers + OpenDataLoader fixtures including a Chinese scan and an Italian invoice). Asserts exit 0, non-empty markdown, and ≥ 1 image extracted for figure-heavy papers.
 - **Snapshot** — `tests/snapshots/attention_page_1.md` is the authoritative reference for the local path's reading order + classification on a two-column academic paper. Regenerate with `GOLDEN_UPDATE=1`.
-- **Sidecar audit** — `scripts/sidecar-audit.sh` compares native output with optional external backends. It skips unavailable Docling/gmft/img2table/UniMERNet commands and still writes `target/sidecar-audit/summary.md`.
+- **Sidecar audit** — `scripts/sidecar-audit.sh` compares native output with deterministic peers (`pdftotext`, PyMuPDF4LLM, pdfplumber, pdfminer.six, Camelot, Tabula, OCRmyPDF) plus optional ML sidecars. Missing commands/modules skip cleanly and the script still writes `target/sidecar-audit/summary.md`.
 
 ## Test PDFs
 
@@ -365,8 +371,9 @@ Things to look for:
 ## Evaluation (`pdfp eval`)
 
 `pdfp eval <fixtures-dir>` runs the local pipeline against fixture PDFs and
-reports formula recall, heading accuracy, and table recall. Fixture JSON files
-live next to their PDFs and are intentionally small enough to edit by hand.
+reports recall and precision for formulas, headings, table pages, table
+regions, and image/figure extraction. Fixture JSON files live next to their PDFs
+and are intentionally small enough to edit by hand.
 
 ```bash
 pdfp eval tests/eval_fixtures/
@@ -376,10 +383,18 @@ Output shape:
 
 ```text
 paper.pdf
-  pages evaluated:   3
-  formula recall:    75.0% (3/4)
-  heading accuracy:  100.0% (2/2)
-  table recall:      50.0% (1/2)
+  pages evaluated:    3
+  formula recall:     75.0% (3/4)
+  formula precision:  75.0% (3/4, fp 1)
+  heading accuracy:   100.0% (2/2)
+  heading precision:  100.0% (2/2, fp 0)
+  table recall:       50.0% (1/2)
+  table precision:    50.0% (1/2, fp 1)
+
+  decorative suppression: 100.0% (0/0, emitted 0)
+  meaningful figure retention: 100.0% (1/1)
+  figure-caption pairing: 100.0% (1/1)
+  vector-only acknowledgement: 100.0% (0/0)
 ```
 
 Fixture format is documented in `tests/eval_fixtures/README.md`. Missing PDFs
@@ -393,9 +408,9 @@ On this machine they were copied from the local Typst templates:
 
 ```bash
 mkdir -p test-corpus/eval
-cp /home/eastill/projects/typst-template/engineering-report/example.pdf \
+cp /home/eastill/projects/typst-templates/engineering-report/example.pdf \
   test-corpus/eval/engineering-report-example.pdf
-cp /home/eastill/projects/typst-template/engineering-calc/example.pdf \
+cp /home/eastill/projects/typst-templates/engineering-calc/example.pdf \
   test-corpus/eval/engineering-calc-example.pdf
 ```
 
@@ -405,27 +420,58 @@ Run:
 target/debug/pdfp eval tests/eval_fixtures/
 ```
 
-Current local baseline:
+Stage 8.5 measured result:
 
 ```text
 engineering-calc-example.pdf
-  pages evaluated:   2
-  formula recall:    0.0% (0/12)
-  heading accuracy:  0.0% (0/8)
-  table recall:      100.0% (1/1)
+  pages evaluated:    2
+  formula recall:     100.0% (12/12)
+  formula precision:  100.0% (12/12, fp 0)
+  heading accuracy:   100.0% (8/8)
+  heading precision:  100.0% (8/8, fp 0)
+  table recall:       100.0% (1/1)
+  table precision:    100.0% (1/1, fp 0)
+
+  table region recall:    100.0% (1/1)
+  table region precision: 50.0% (1/2, fp 1, fn 0)
 
 engineering-report-example.pdf
-  pages evaluated:   4
-  formula recall:    0.0% (0/1)
-  heading accuracy:  0.0% (0/13)
-  table recall:      100.0% (3/3)
+  pages evaluated:    4
+  formula recall:     100.0% (1/1)
+  formula precision:  100.0% (1/1, fp 0)
+  heading accuracy:   69.2% (9/13)
+  heading precision:  100.0% (9/9, fp 0)
+  table recall:       100.0% (3/3)
+  table precision:    100.0% (3/3, fp 0)
+
+  table region recall:    100.0% (3/3)
+  table region precision: 100.0% (3/3, fp 0, fn 0)
 
 evaluated 2 document(s), skipped 1
 ```
 
-The table value is recall only. Debug table output currently shows broad
-whole-page table regions on these Typst fixtures, so do not read the 100%
-table recall as table precision.
+Stage 7.5 started at 0/21 headings and 0/13 formulas. Stage 8 recovers
+numbered engineering headings and display/calc formulas while preserving the
+4/4 table recall floor. Stage 8.5 removes the tracked false-positive table
+pages and adds IoU-based table-region precision. Combined recorded table-region
+precision is 4/5 because the calc fixture still emits one extra layout region
+on a true-table page.
+
+Stage 9 image benchmark kickoff adds local harder-document fixtures for
+`attention.pdf`, the PDF/UA brochure, and vector-heavy `resnet.pdf` under the
+ignored `example/pdf/` corpus. On this machine, the current image baseline
+is 6/6 meaningful figure retention, 3/3 figure-caption pairing, and 1/1
+vector-only acknowledgement across the sampled pages. Decorative suppression is
+wired into `pdfp eval`.
+
+The generated `stage9-hard-images.pdf` pack adds controlled decorative,
+captioned-figure, mixed decorative/meaningful, and vector-only pages from
+tracked Typst/SVG sources. Run
+`scripts/generate-eval-fixtures.sh stage9-hard-images` before eval to include
+it. With that pack present, the current hard image totals are 1/2 decorative
+suppression, 8/9 meaningful figure retention, 5/6 figure-caption pairing, and
+1/2 vector-only acknowledgement. These are deliberately harder than the kickoff
+baseline and should be treated as the next Stage 9 improvement signal.
 
 ## How to add a new test
 

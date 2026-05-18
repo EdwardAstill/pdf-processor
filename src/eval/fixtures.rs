@@ -1,13 +1,40 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+use crate::document::types::Bbox;
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct ExpectedHeading {
     pub text: String,
     pub level: u8,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
+pub struct ExpectedTableRegion {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+impl ExpectedTableRegion {
+    pub fn bbox(self) -> Bbox {
+        Bbox::new(self.x0, self.y0, self.x1, self.y1)
+    }
+}
+
+impl From<Bbox> for ExpectedTableRegion {
+    fn from(bbox: Bbox) -> Self {
+        Self {
+            x0: bbox.x0,
+            y0: bbox.y0,
+            x1: bbox.x1,
+            y1: bbox.y1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct PageExpectation {
     pub page: usize,
     #[serde(default)]
@@ -16,9 +43,23 @@ pub struct PageExpectation {
     pub expected_headings: Vec<ExpectedHeading>,
     #[serde(default)]
     pub expected_tables: usize,
+    #[serde(default)]
+    pub expected_table_regions: Vec<ExpectedTableRegion>,
+    #[serde(default)]
+    pub expected_decorative_images: usize,
+    #[serde(default)]
+    pub expected_meaningful_figures: usize,
+    #[serde(default)]
+    pub expected_figure_captions: usize,
+    #[serde(default)]
+    pub expected_vector_only_regions: usize,
+    #[serde(default)]
+    pub skip_text_metrics: bool,
+    #[serde(default)]
+    pub skip_table_metrics: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct FixtureFile {
     /// PDF path, relative to the fixture JSON directory unless absolute.
     pub pdf: String,

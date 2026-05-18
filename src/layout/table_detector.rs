@@ -2,6 +2,7 @@
 
 use crate::document::types::{Bbox, RawWord};
 use crate::layout::drawing_ops::{HLine, VLine};
+use crate::layout::table::{TableEvidence, TableEvidenceSource};
 use std::collections::HashSet;
 
 const MIN_LINE_TABLE_WIDTH_FRACTION: f32 = 0.30;
@@ -14,13 +15,21 @@ const MIN_WS_ROWS: usize = 3;
 const ROW_TOLERANCE_PT: f32 = 8.0;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct GeometryTableRegion {
+pub(crate) struct GeometryTableRegion {
     pub bbox: Bbox,
     pub rows: Vec<Vec<String>>,
     pub layout_text: String,
     pub source_block_ids: std::collections::BTreeSet<usize>,
     pub row_consistency: f32,
     pub confidence: f32,
+    pub evidence: TableEvidence,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct GeometryRegion {
+    bbox: Bbox,
+    source: TableEvidenceSource,
+    ruling_intersections: usize,
 }
 
 /// Returns bounding boxes of candidate table regions.
@@ -38,7 +47,7 @@ pub fn detect_table_regions(
         .collect()
 }
 
-pub fn detect_table_region_candidates(
+pub(crate) fn detect_table_region_candidates(
     hlines: &[HLine],
     vlines: &[VLine],
     words: &[RawWord],
@@ -52,7 +61,7 @@ pub fn detect_table_region_candidates(
     }
     merge_regions(regions)
         .into_iter()
-        .filter_map(|region| geometry_region_candidate(region, words))
+        .filter_map(|region| geometry_region_candidate(region, words, page_height))
         .collect()
 }
 
@@ -61,7 +70,7 @@ fn line_pair_regions(
     words: &[RawWord],
     page_width: f32,
     page_height: f32,
-) -> Vec<Bbox> {
+) -> Vec<GeometryRegion> {
     let mut significant: Vec<&HLine> = hlines
         .iter()
         .filter(|line| {
@@ -94,12 +103,16 @@ fn line_pair_regions(
         if count_rows(&words_in_band) < 1 || count_columns(&words_in_band, page_width) < 2 {
             continue;
         }
-        regions.push(Bbox::new(
-            x0.max(0.0),
-            top.y.max(0.0),
-            x1.min(page_width),
-            bottom.y.min(page_height),
-        ));
+        regions.push(GeometryRegion {
+            bbox: Bbox::new(
+                x0.max(0.0),
+                top.y.max(0.0),
+                x1.min(page_width),
+                bottom.y.min(page_height),
+            ),
+            source: TableEvidenceSource::RulingBand,
+            ruling_intersections: 0,
+        });
     }
     regions
 }
@@ -110,7 +123,7 @@ fn grid_regions(
     words: &[RawWord],
     page_width: f32,
     page_height: f32,
-) -> Vec<Bbox> {
+) -> Vec<GeometryRegion> {
     let significant_h: Vec<&HLine> = hlines.iter().filter(|line| line.is_significant()).collect();
     let significant_v: Vec<&VLine> = vlines.iter().filter(|line| line.is_significant()).collect();
     if significant_h.len() < 2 || significant_v.len() < 2 {
@@ -153,10 +166,14 @@ fn grid_regions(
     if words_in_grid < MIN_LINE_BAND_WORDS {
         return Vec::new();
     }
-    vec![bbox]
+    vec![GeometryRegion {
+        bbox,
+        source: TableEvidenceSource::RulingGrid,
+        ruling_intersections: significant_h.len() * significant_v.len(),
+    }]
 }
 
-fn whitespace_table_region(words: &[RawWord], page_width: f32) -> Option<Bbox> {
+fn whitespace_table_region(words: &[RawWord], page_width: f32) -> Option<GeometryRegion> {
     if words.len() < MIN_WS_COLUMNS * MIN_WS_ROWS {
         return None;
     }
@@ -181,7 +198,11 @@ fn whitespace_table_region(words: &[RawWord], page_width: f32) -> Option<Bbox> {
     }
 
     let all_words: Vec<&RawWord> = qualifying_rows.into_iter().flatten().collect();
-    Some(words_bbox(&all_words)?.pad(3.0, 3.0))
+    Some(GeometryRegion {
+        bbox: words_bbox(&all_words)?.pad(3.0, 3.0),
+        source: TableEvidenceSource::TextAlignment,
+        ruling_intersections: 0,
+    })
 }
 
 fn word_between_rules(word: &RawWord, top: f32, bottom: f32, x0: f32, x1: f32) -> bool {
@@ -312,10 +333,15 @@ fn words_bbox(words: &[&RawWord]) -> Option<Bbox> {
         .reduce(|left, right| left.union(&right))
 }
 
-fn geometry_region_candidate(region: Bbox, words: &[RawWord]) -> Option<GeometryTableRegion> {
+fn geometry_region_candidate(
+    region: GeometryRegion,
+    words: &[RawWord],
+    page_height: f32,
+) -> Option<GeometryTableRegion> {
+    let bbox = region.bbox;
     let mut region_words: Vec<&RawWord> = words
         .iter()
-        .filter(|word| bbox_overlap_ratio(word.bbox, region) > 0.20 || region.overlaps(&word.bbox))
+        .filter(|word| bbox_overlap_ratio(word.bbox, bbox) > 0.20 || bbox.overlaps(&word.bbox))
         .collect();
     if region_words.len() < MIN_LINE_BAND_WORDS {
         return None;
@@ -336,6 +362,9 @@ fn geometry_region_candidate(region: Bbox, words: &[RawWord]) -> Option<Geometry
     if rows.is_empty() {
         return None;
     }
+    if prose_page_like_geometry_region(&rows, bbox, page_height) {
+        return None;
+    }
     let layout_text = geometry_rows_to_layout_text(&rows);
     let markdown_rows: Vec<Vec<String>> = rows
         .iter()
@@ -343,15 +372,113 @@ fn geometry_region_candidate(region: Bbox, words: &[RawWord]) -> Option<Geometry
         .collect();
     let source_block_ids = region_words.iter().map(|word| word.block_id).collect();
     let row_consistency = row_width_consistency(&markdown_rows);
+    let evidence = geometry_table_evidence(
+        &rows,
+        row_consistency,
+        bbox,
+        page_height,
+        region.source,
+        region.ruling_intersections,
+    );
+    let confidence = evidence.score();
 
     Some(GeometryTableRegion {
-        bbox: region,
+        bbox,
         rows: markdown_rows,
         layout_text,
         source_block_ids,
         row_consistency,
-        confidence: 0.78,
+        confidence,
+        evidence,
     })
+}
+
+fn prose_page_like_geometry_region(rows: &[Vec<&RawWord>], region: Bbox, page_height: f32) -> bool {
+    if rows.len() < 8 || region.height() < page_height.max(1.0) * 0.45 {
+        return false;
+    }
+    let prose_rows = rows
+        .iter()
+        .filter(|row| geometry_row_looks_like_prose(row))
+        .count();
+    prose_rows * 10 >= rows.len() * 3
+}
+
+fn geometry_row_looks_like_prose(row: &[&RawWord]) -> bool {
+    if row.len() < 6 {
+        return false;
+    }
+    let stopwords = [
+        "a", "an", "and", "are", "as", "at", "for", "from", "in", "is", "of", "on", "or", "the",
+        "to", "with", "without",
+    ];
+    let stopword_count = row
+        .iter()
+        .filter(|word| stopwords.contains(&word.text.to_ascii_lowercase().as_str()))
+        .count();
+    let digit_rows = row
+        .iter()
+        .filter(|word| word.text.chars().any(|ch| ch.is_ascii_digit()))
+        .count();
+    stopword_count >= 1 && digit_rows == 0
+}
+
+fn geometry_table_evidence(
+    rows: &[Vec<&RawWord>],
+    row_consistency: f32,
+    bbox: Bbox,
+    page_height: f32,
+    source: TableEvidenceSource,
+    ruling_intersections: usize,
+) -> TableEvidence {
+    let word_count = rows.iter().map(Vec::len).sum::<usize>().max(1);
+    let numeric_density = rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .filter(|word| geometry_word_looks_like_table_value(&word.text))
+        .count() as f32
+        / word_count as f32;
+    let prose_ratio = rows
+        .iter()
+        .filter(|row| geometry_row_looks_like_prose(row))
+        .count() as f32
+        / rows.len().max(1) as f32;
+    let broad_page_penalty = if bbox.height() >= page_height.max(1.0) * 0.35 {
+        match source {
+            TableEvidenceSource::TextAlignment => 0.28,
+            TableEvidenceSource::RulingBand => 0.12,
+            TableEvidenceSource::RulingGrid => 0.04,
+            _ => 0.10,
+        }
+    } else {
+        0.0
+    };
+    let column_alignment = (row_consistency + numeric_density.max(0.20)) / 2.0;
+    TableEvidence {
+        source,
+        row_consistency,
+        column_alignment: column_alignment.clamp(0.0, 1.0),
+        numeric_density,
+        row_count: rows.len(),
+        ruling_intersections,
+        caption_score: 0.0,
+        broad_page_penalty,
+        prose_penalty: prose_ratio * 0.35,
+        debug_reasons: vec![format!("{source:?}")],
+    }
+}
+
+fn geometry_word_looks_like_table_value(text: &str) -> bool {
+    let trimmed = text.trim_matches(|ch: char| matches!(ch, ',' | ';' | ':' | '†' | '‡' | '*'));
+    if trimmed.is_empty() {
+        return false;
+    }
+    let digit_count = trimmed.chars().filter(|ch| ch.is_ascii_digit()).count();
+    if digit_count == 0 {
+        return matches!(trimmed, "-" | "–" | "—");
+    }
+    let content_len = trimmed.chars().filter(|ch| !ch.is_whitespace()).count();
+    digit_count * 2 >= content_len.max(1)
 }
 
 fn geometry_words_to_rows<'a>(words: &[&'a RawWord]) -> Vec<Vec<&'a RawWord>> {
@@ -425,21 +552,37 @@ fn row_width_consistency(rows: &[Vec<String>]) -> f32 {
         .unwrap_or(0.0)
 }
 
-fn merge_regions(regions: Vec<Bbox>) -> Vec<Bbox> {
-    let mut kept = Vec::new();
+fn merge_regions(regions: Vec<GeometryRegion>) -> Vec<GeometryRegion> {
+    let mut kept: Vec<GeometryRegion> = Vec::new();
     'candidate: for region in regions {
-        if region.width() <= 0.0 || region.height() <= 0.0 {
+        if region.bbox.width() <= 0.0 || region.bbox.height() <= 0.0 {
             continue;
         }
         for existing in &mut kept {
-            if overlap_ratio(region, *existing) > 0.60 {
-                *existing = existing.union(&region);
+            if overlap_ratio(region.bbox, existing.bbox) > 0.60 {
+                existing.bbox = existing.bbox.union(&region.bbox);
+                if geometry_source_rank(region.source) > geometry_source_rank(existing.source) {
+                    existing.source = region.source;
+                }
+                existing.ruling_intersections = existing
+                    .ruling_intersections
+                    .max(region.ruling_intersections);
                 continue 'candidate;
             }
         }
         kept.push(region);
     }
     kept
+}
+
+fn geometry_source_rank(source: TableEvidenceSource) -> u8 {
+    match source {
+        TableEvidenceSource::RulingGrid => 4,
+        TableEvidenceSource::RulingBand => 3,
+        TableEvidenceSource::NumericRows => 3,
+        TableEvidenceSource::ExplicitRegion | TableEvidenceSource::ExternalModel => 3,
+        TableEvidenceSource::TextAlignment => 1,
+    }
 }
 
 fn overlap_ratio(a: Bbox, b: Bbox) -> f32 {

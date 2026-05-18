@@ -49,12 +49,22 @@ bash scripts/sidecar-audit.sh
 
 The script always runs the native `pdfp` conversion. Optional backends are skipped unless available:
 
+- `pdftotext-layout` uses Poppler `pdftotext -layout` when installed.
+- `pymupdf4llm` uses the `pymupdf4llm` Python module when installed.
+- `pdfplumber`, `pdfminer`, and `camelot` use their Python modules when installed.
+- `tabula` uses `PDFP_TABULA_COMMAND` or a `tabula` command on `PATH`.
+- `ocrmypdf` uses the `ocrmypdf` command, then runs `pdfp` on the OCR PDF.
 - `docling` checks `PDFP_SIDECAR_DOCLING_URL` (default `http://localhost:5001`).
 - `gmft` uses `PDFP_GMFT_COMMAND` or a `gmft` command on `PATH`.
 - `img2table` uses `PDFP_IMG2TABLE_COMMAND` or an `img2table` command on `PATH`.
 - `unimernet` uses `PDFP_UNIMERNET_COMMAND` or a `unimernet` command on `PATH`.
 
 Outputs are written under `target/sidecar-audit/` with one directory per backend and a summary at `target/sidecar-audit/summary.md`. External command wrappers receive two arguments: the input PDF path and the output directory. This keeps GPL/AGPL or large-model tools outside the default build while still making experiments repeatable.
+
+For the current comparison against leading deterministic/local peers and broader
+cloud/ML parsers, see [`docs/TOOL_COMPARISON.md`](TOOL_COMPARISON.md). The
+deterministic rows are the first benchmark target; the cloud/ML rows remain a
+capability matrix until sidecar/API outputs are measured on the same fixtures.
 
 ## Current Baseline
 

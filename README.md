@@ -83,7 +83,10 @@ pdfp impose booklet --help
 pdfp page resize --help
 ```
 
-See the full CLI guide at [`docs/CLI.md`](docs/CLI.md).
+See the full CLI guide at [`docs/CLI.md`](docs/CLI.md). For an honest
+comparison against Docling, PyMuPDF4LLM, Marker, MinerU, Mathpix, Adobe PDF
+Extract, LlamaParse, and Unstructured, see
+[`docs/TOOL_COMPARISON.md`](docs/TOOL_COMPARISON.md).
 
 For conversion, `INPUT` can be:
 

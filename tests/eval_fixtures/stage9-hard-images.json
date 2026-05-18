@@ -1,0 +1,41 @@
+{
+  "pdf": "../../test-corpus/eval/stage9-hard-images.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_decorative_images": 1,
+      "expected_meaningful_figures": 0,
+      "expected_figure_captions": 0,
+      "expected_vector_only_regions": 0,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    },
+    {
+      "page": 2,
+      "expected_decorative_images": 0,
+      "expected_meaningful_figures": 1,
+      "expected_figure_captions": 1,
+      "expected_vector_only_regions": 0,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    },
+    {
+      "page": 3,
+      "expected_decorative_images": 1,
+      "expected_meaningful_figures": 1,
+      "expected_figure_captions": 1,
+      "expected_vector_only_regions": 0,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    },
+    {
+      "page": 4,
+      "expected_decorative_images": 0,
+      "expected_meaningful_figures": 1,
+      "expected_figure_captions": 1,
+      "expected_vector_only_regions": 1,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    }
+  ]
+}

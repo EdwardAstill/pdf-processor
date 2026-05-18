@@ -215,12 +215,24 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         table_mode,
     ));
     let table_candidates = suppress_overlapping_table_candidates(table_candidates);
+    let table_candidates: Vec<TableCandidate> = table_candidates
+        .into_iter()
+        .filter(|candidate| candidate.should_emit(raw_page.width, raw_page.height))
+        .collect();
     let furniture_bboxes = ctx
         .furniture_mask
         .get(&raw_page.page_num)
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    let excluded_regions = formula_excluded_regions(&table_candidates, furniture_bboxes);
+    let formula_blocking_tables: Vec<TableCandidate> = table_candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.table.confidence >= 0.70
+                && !is_broad_layout_table_candidate(candidate, raw_page.height)
+        })
+        .cloned()
+        .collect();
+    let excluded_regions = formula_excluded_regions(&formula_blocking_tables, furniture_bboxes);
     if ctx.args.options.debug_tables && !matches!(table_mode, TableMode::Off) {
         write_table_debug(ctx.output_dir, raw_page.page_num, &table_candidates)?;
     }
@@ -229,8 +241,10 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     } else {
         detect_formula_candidates(&raw_page, &excluded_regions)
     };
-    formula_candidates =
-        suppress_formula_candidates_overlapping_tables(formula_candidates, &table_candidates);
+    formula_candidates = suppress_formula_candidates_overlapping_tables(
+        formula_candidates,
+        &formula_blocking_tables,
+    );
     if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
         let visual_candidates = detect_visual_formula_candidates(
             ctx.pdf_path,
@@ -346,6 +360,10 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
         .collect()
 }
 
+fn is_broad_layout_table_candidate(candidate: &TableCandidate, page_height: f32) -> bool {
+    candidate.is_broad_layout_candidate(page_height)
+}
+
 fn detect_geometry_table_candidates(
     mu_doc: Option<&mupdf::Document>,
     raw_page: &RawPage,
@@ -404,6 +422,7 @@ fn geometry_region_to_table_candidate(
             render,
         },
         source_block_ids: region.source_block_ids,
+        evidence: region.evidence,
     })
 }
 
@@ -569,6 +588,7 @@ fn write_table_debug(
         table_region: Bbox,
         confidence: f32,
         render: &'a TableRender,
+        evidence: &'a crate::layout::table::TableEvidence,
         rows: &'a [Vec<String>],
     }
 
@@ -582,6 +602,7 @@ fn write_table_debug(
             table_region: candidate.table.bbox,
             confidence: candidate.table.confidence,
             render: &candidate.table.render,
+            evidence: &candidate.evidence,
             rows: &candidate.table.rows,
         })
         .collect();

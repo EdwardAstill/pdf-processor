@@ -18,7 +18,15 @@
           "level": 2
         }
       ],
-      "expected_tables": 1
+      "expected_tables": 1,
+      "expected_table_regions": [
+        {
+          "x0": 93.600006,
+          "y0": 420.96002,
+          "x1": 501.6,
+          "y1": 555.84
+        }
+      ]
     },
     {
       "page": 2,
@@ -45,7 +53,8 @@
           "level": 3
         }
       ],
-      "expected_tables": 0
+      "expected_tables": 0,
+      "expected_table_regions": []
     }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "pdf": "../../example/pdf/resnet.pdf",
+  "pages": [
+    {
+      "page": 2,
+      "expected_formula_count": 0,
+      "expected_headings": [],
+      "expected_tables": 0,
+      "expected_meaningful_figures": 1,
+      "expected_figure_captions": 1,
+      "expected_vector_only_regions": 1,
+      "skip_text_metrics": true,
+      "skip_table_metrics": true
+    }
+  ]
+}

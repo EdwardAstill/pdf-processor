@@ -51,7 +51,7 @@ pub fn render_figure_snapshots(
                 text: String::new(),
                 kind: BlockKind::Figure {
                     path: Some(format!("images/{filename}")),
-                    caption: None,
+                    caption: candidate.caption_text.clone(),
                 },
                 font_size: 0.0,
                 font_name: "figure-snapshot".to_string(),

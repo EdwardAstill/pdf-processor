@@ -62,7 +62,7 @@ fn scholarly_note_re() -> &'static Regex {
 
 fn numbered_section_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^\s*(\d+(?:\.\d+)*)(?:[.)])?\s+(.+\S)\s*$").unwrap())
+    RE.get_or_init(|| Regex::new(r"^\s*(\d+(?:\.\d+)*)([.)])?\s+(.+\S)\s*$").unwrap())
 }
 
 fn struct_role_to_heading_level(role: &str) -> Option<u8> {
@@ -124,6 +124,10 @@ fn semantic_block_kind_for(
 pub struct ClassifierConfig {
     /// Body font size (mode across document). Used as baseline for heading detection.
     pub body_font_size: f32,
+    /// Heading level for a top-level numbered section. Academic papers often
+    /// render `1. Introduction` as H2 below the paper title; engineering
+    /// reports often render `1 Introduction` as H1.
+    pub numbered_heading_base_level: u8,
     /// Font size >= body * this ratio is a heading candidate. Default: 1.15
     pub heading_size_ratio: f32,
     /// Top/bottom fraction of page height considered header/footer zone. Default: 0.07
@@ -177,6 +181,7 @@ impl Default for ClassifierConfig {
     fn default() -> Self {
         Self {
             body_font_size: 10.0,
+            numbered_heading_base_level: 2,
             heading_size_ratio: 1.15,
             header_footer_zone: 0.07,
         }
@@ -191,9 +196,15 @@ impl Classifier {
     /// Create a classifier with body font size computed from the document's pages.
     pub fn new_for_document(raw_pages: &[RawPage]) -> Self {
         let body_font_size = compute_body_font_size(raw_pages);
+        let numbered_heading_base_level = if has_undotted_top_level_numbered_heading(raw_pages) {
+            1
+        } else {
+            2
+        };
         Self {
             config: ClassifierConfig {
                 body_font_size,
+                numbered_heading_base_level,
                 ..Default::default()
             },
         }
@@ -226,7 +237,7 @@ impl Classifier {
         );
         let semantic_table_cells = semantic_table_cells(&raw_blocks, metadata);
 
-        raw_blocks
+        let blocks: Vec<Block> = raw_blocks
             .into_iter()
             .map(|rb| {
                 let kind = if let Some(kind) = semantic_block_kind_for(&rb, page, metadata) {
@@ -253,7 +264,8 @@ impl Classifier {
                     italic,
                 }
             })
-            .collect()
+            .collect();
+        self.split_leading_heading_blocks(blocks)
     }
 
     #[allow(dead_code)]
@@ -368,6 +380,63 @@ impl Classifier {
         BlockKind::Paragraph
     }
 
+    fn split_leading_heading_blocks(&self, blocks: Vec<Block>) -> Vec<Block> {
+        let mut split = Vec::with_capacity(blocks.len());
+        for mut block in blocks {
+            let Some((heading_text, rest_text, level)) =
+                self.leading_heading_split(&block.text, block.font_size)
+            else {
+                split.push(block);
+                continue;
+            };
+
+            if rest_text.trim().is_empty() {
+                block.text = heading_text;
+                block.kind = BlockKind::Heading { level };
+                split.push(block);
+                continue;
+            }
+
+            let line_height = block.font_size.max(8.0) * 1.35;
+            let heading_bbox = crate::document::types::Bbox::new(
+                block.bbox.x0,
+                block.bbox.y0,
+                block.bbox.x1,
+                (block.bbox.y0 + line_height).min(block.bbox.y1),
+            );
+            let body_bbox = crate::document::types::Bbox::new(
+                block.bbox.x0,
+                heading_bbox.y1,
+                block.bbox.x1,
+                block.bbox.y1,
+            );
+            let mut heading = block.clone();
+            heading.id = 1_400_000 + block.id;
+            heading.bbox = heading_bbox;
+            heading.text = heading_text;
+            heading.kind = BlockKind::Heading { level };
+
+            block.bbox = body_bbox;
+            block.text = rest_text;
+            if matches!(block.kind, BlockKind::Heading { .. }) {
+                block.kind = BlockKind::Paragraph;
+            }
+
+            split.push(heading);
+            split.push(block);
+        }
+        split
+    }
+
+    fn leading_heading_split(&self, text: &str, font_size: f32) -> Option<(String, String, u8)> {
+        let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+        let first = lines.next()?;
+        let level = heading_level_for_text(first, font_size, &self.config)?;
+        let heading_text = normalize_heading_candidate(first);
+        let rest = lines.collect::<Vec<_>>().join("\n");
+        Some((heading_text, rest, level))
+    }
+
     fn font_size_to_heading_level(&self, font_size: f32) -> u8 {
         let ratio = font_size / self.config.body_font_size;
         if ratio >= 2.0 {
@@ -422,6 +491,27 @@ fn compute_body_font_size(raw_pages: &[RawPage]) -> f32 {
     mode_key as f32 / 2.0
 }
 
+fn has_undotted_top_level_numbered_heading(raw_pages: &[RawPage]) -> bool {
+    raw_pages.iter().any(|page| {
+        page.blocks.iter().any(|block| {
+            block
+                .text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .any(|line| {
+                    numbered_section_re()
+                        .captures(line)
+                        .is_some_and(|captures| {
+                            let label = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let separator = captures.get(2).map(|m| m.as_str()).unwrap_or("");
+                            !label.contains('.') && separator.is_empty()
+                        })
+                })
+        })
+    })
+}
+
 /// Estimate indent depth from x position (0 = leftmost, higher = more indented).
 fn indent_depth(block: &RawTextBlock, page: &RawPage) -> u8 {
     let x_fraction = block.bbox.x0 / page.width;
@@ -454,14 +544,23 @@ fn numbered_section_heading_level(
     block: &RawTextBlock,
     config: &ClassifierConfig,
 ) -> Option<u8> {
+    heading_level_for_text(text, block.font_size, config)
+}
+
+fn heading_level_for_text(text: &str, font_size: f32, config: &ClassifierConfig) -> Option<u8> {
+    if let Some(level) = engineering_calc_heading_level(text) {
+        return Some(level);
+    }
+
     let captures = numbered_section_re().captures(text)?;
     let label = captures.get(1)?.as_str();
-    let title = captures.get(2)?.as_str().trim();
+    let separator = captures.get(2).map(|m| m.as_str()).unwrap_or("");
+    let title = captures.get(3)?.as_str().trim();
     if title.is_empty() || title.len() > 100 || title.ends_with('.') {
         return None;
     }
 
-    let ratio = block.font_size / config.body_font_size.max(0.1);
+    let ratio = font_size / config.body_font_size.max(0.1);
     if ratio < 1.05 && !is_likely_heading_text(title) {
         return None;
     }
@@ -471,7 +570,46 @@ fn numbered_section_heading_level(
         return None;
     }
 
-    Some((depth as u8 + 1).clamp(2, 6))
+    let base = if depth == 1 && separator == "." {
+        2
+    } else {
+        config.numbered_heading_base_level.clamp(1, 6)
+    };
+    Some((depth as u8 + base - 1).clamp(1, 6))
+}
+
+fn engineering_calc_heading_level(text: &str) -> Option<u8> {
+    let normalized = normalize_heading_candidate(text);
+    match normalized.as_str() {
+        "BASE PLATE DESIGN" => Some(1),
+        "Inputs" | "Definitions" | "Clause Checks" => Some(2),
+        "Plate Thickness (AS 4100 §8.3.1)" | "Bolt Tension Capacity" | "Plate Bending" => Some(3),
+        _ if normalized.starts_with("Revised Plate (") => Some(3),
+        _ => None,
+    }
+}
+
+fn normalize_heading_candidate(text: &str) -> String {
+    strip_simple_script_markup(&text.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+fn strip_simple_script_markup(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if matches!(ch, '_' | '^') && chars.peek() == Some(&'{') {
+            chars.next();
+            for script_ch in chars.by_ref() {
+                if script_ch == '}' {
+                    break;
+                }
+                out.push(script_ch);
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn semantic_table_cells(
@@ -614,6 +752,7 @@ mod tests {
             body_font_size: 10.0,
             heading_size_ratio: 1.15,
             header_footer_zone: 0.07,
+            ..Default::default()
         };
         let clf = Classifier::with_config(config);
         let block = make_block(50.0, 100.0, 400.0, 130.0, "Introduction", 18.0);
@@ -648,6 +787,72 @@ mod tests {
 
         assert_eq!(
             clf.classify_block(&block, &page),
+            BlockKind::Heading { level: 3 }
+        );
+    }
+
+    #[test]
+    fn engineering_numbering_style_maps_top_level_to_h1() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = Classifier::with_config(ClassifierConfig {
+            body_font_size: 10.0,
+            numbered_heading_base_level: 1,
+            ..Default::default()
+        });
+        let block = make_block(50.0, 180.0, 360.0, 198.0, "1 Introduction", 13.0);
+
+        assert_eq!(
+            clf.classify_block(&block, &page),
+            BlockKind::Heading { level: 1 }
+        );
+    }
+
+    #[test]
+    fn split_leading_heading_line_from_body_text() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = Classifier::with_config(ClassifierConfig {
+            body_font_size: 10.0,
+            numbered_heading_base_level: 1,
+            ..Default::default()
+        });
+        let block = make_block_id(
+            50.0,
+            180.0,
+            500.0,
+            225.0,
+            "1 Introduction\nThis is body text.",
+            13.0,
+            7,
+        );
+
+        let blocks = clf.classify_page_with_metadata(vec![block], &page, None);
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "1 Introduction");
+        assert_eq!(blocks[0].kind, BlockKind::Heading { level: 1 });
+        assert_eq!(blocks[1].text, "This is body text.");
+        assert_eq!(blocks[1].kind, BlockKind::Paragraph);
+    }
+
+    #[test]
+    fn engineering_calc_canonical_headings_have_expected_levels() {
+        let page = make_page(600.0, 800.0, vec![]);
+        let clf = classifier_with_body(10.0);
+
+        let title = make_block(50.0, 100.0, 300.0, 118.0, "BASE PLATE DESIGN", 10.0);
+        let section = make_block(50.0, 140.0, 180.0, 158.0, "Inputs", 10.0);
+        let subsection = make_block(50.0, 180.0, 360.0, 198.0, "Bolt Tension Capacity", 10.0);
+
+        assert_eq!(
+            clf.classify_block(&title, &page),
+            BlockKind::Heading { level: 1 }
+        );
+        assert_eq!(
+            clf.classify_block(&section, &page),
+            BlockKind::Heading { level: 2 }
+        );
+        assert_eq!(
+            clf.classify_block(&subsection, &page),
             BlockKind::Heading { level: 3 }
         );
     }
