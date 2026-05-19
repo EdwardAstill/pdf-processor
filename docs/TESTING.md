@@ -468,10 +468,12 @@ The generated `stage9-hard-images.pdf` pack adds controlled decorative,
 captioned-figure, mixed decorative/meaningful, and vector-only pages from
 tracked Typst/SVG sources. Run
 `scripts/generate-eval-fixtures.sh stage9-hard-images` before eval to include
-it. With that pack present, the current hard image totals are 1/2 decorative
-suppression, 8/9 meaningful figure retention, 5/6 figure-caption pairing, and
-1/2 vector-only acknowledgement. These are deliberately harder than the kickoff
-baseline and should be treated as the next Stage 9 improvement signal.
+it. Stage 9 source now reports 2/2 decorative suppression, 9/9 meaningful
+figure retention, 6/6 figure-caption pairing, and 2/2 vector-only
+acknowledgement across the hard image fixtures plus generated pack. The
+generated pack alone reports 2/2, 3/3, 3/3, and 1/1 respectively. These numbers
+require a rebuilt source binary; an older installed `pdfp 0.3.0` will not expose
+the same eval behavior.
 
 ## How to add a new test
 

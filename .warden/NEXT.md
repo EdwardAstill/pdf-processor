@@ -1,15 +1,16 @@
 # Next Work
 
-Updated: 2026-05-15 AWST
-Branch: stage-8-heading-formula
-Remote: origin/main was base at `89528d6`
+Updated: 2026-05-19 AWST
+Branch: stage9-finish-polish
+Remote: origin/main at `07c3b26`
 
 ## Current Goal
-Stage 9 image benchmark kickoff and the generated hard-image fixture pack are
-implemented on top of the Stage 8/8.5 floors. The next Stage 9 work should tune
-decorative suppression, retained captioned figures, and vector-only snapshot
-acknowledgement without dropping the existing text, formula, table, or figure
-floors.
+Stage 9 image/vector handling is finished in source. The generated hard-image
+fixture pack now reaches full decorative suppression, captioned figure
+retention, figure-caption pairing, and vector-only acknowledgement while the
+hard local image fixtures stay green. The package version is bumped to
+`0.3.1`; the installed `pdfp` remains an older `0.3.0` binary until a release
+or local install step updates it.
 
 External-tool parity is now partially measured for deterministic peers.
 `docs/TOOL_COMPARISON.md` puts `pdfp` first against PyMuPDF4LLM, Poppler
@@ -54,6 +55,15 @@ parity still requires same-fixture sidecar/API runs.
   sources. It creates ignored `test-corpus/eval/stage9-hard-images.pdf` and
   measures non-zero decorative suppression, captioned figure retention, mixed
   decorative/meaningful pages, and vector-only acknowledgement.
+- Finished Stage 9 tuning by suppressing uncaptioned decorative top banners,
+  choosing nonblank caption-only vector regions from nearby diagram-label text,
+  and suppressing duplicate caption/inner-label Markdown after a figure
+  snapshot claims that content.
+- Added focused regression tests for decorative banner suppression, vector-only
+  caption text-region estimation, and duplicate figure-caption/inner-label
+  Markdown suppression.
+- Bumped source package version to `0.3.1` so Stage 9 builds are distinguishable
+  from installed/released `0.3.0`.
 
 ## Stage 8 Benchmark Result
 - engineering-calc: headings `8/8`, formulas `12/12`, tables `1/1`.
@@ -83,14 +93,23 @@ parity still requires same-fixture sidecar/API runs.
 ## Stage 9 Hard Fixture Pack Result
 - generated hard pack: `stage9-hard-images.pdf` from
   `scripts/generate-eval-fixtures.sh stage9-hard-images`.
-- generated pack alone: decorative suppression `1/2`, meaningful figure
-  retention `2/3`, figure-caption pairing `2/3`, vector-only acknowledgement
-  `0/1`.
+- generated pack alone: decorative suppression `2/2`, meaningful figure
+  retention `3/3`, figure-caption pairing `3/3`, vector-only acknowledgement
+  `1/1`.
 - combined hard image fixtures with the generated pack: decorative suppression
-  `1/2`, meaningful figure retention `8/9`, figure-caption pairing `5/6`,
-  vector-only acknowledgement `1/2`.
-- This is now the visible Stage 9 gap: decorative image suppression and
-  vector-only rendered-region acknowledgement both need tuning.
+  `2/2`, meaningful figure retention `9/9`, figure-caption pairing `6/6`,
+  vector-only acknowledgement `2/2`.
+- Rendered Markdown polish: page 1 no longer emits the decorative banner as a
+  figure; captioned pages render one caption copy; vector-only page 4 renders a
+  nonblank figure snapshot and suppresses duplicated inner diagram labels.
+
+## Version / Install State
+- Source package version is `0.3.1`.
+- Installed `/home/eastill/.local/bin/pdfp` was previously confirmed as
+  `pdfp 0.3.0`; it does not expose current source `pdfp eval` behavior until
+  rebuilt/installed.
+- Release/install remains the next operational step if this branch should
+  replace the user's CLI.
 
 ## Changed Files
 - `.gitignore`
@@ -100,6 +119,8 @@ parity still requires same-fixture sidecar/API runs.
 - `tests/eval_integration.rs`
 - `src/figure/detect.rs`
 - `src/figure/render.rs`
+- `src/render/markdown.rs`
+- `Cargo.toml`
 - `src/layout/classifier.rs`
 - `src/formula/detect.rs`
 - `src/pipeline/mod.rs`
@@ -123,6 +144,7 @@ parity still requires same-fixture sidecar/API runs.
 - `.warden/plans/2026-05-15-stage8-5-table-precision-refactor.md`
 - `.warden/plans/2026-05-15-stage9-image-benchmark-kickoff.md`
 - `.warden/plans/2026-05-15-stage9-hard-fixture-pack.md`
+- `.warden/plans/2026-05-19-stage9-finish-polish-plan.md`
 - `.warden/plans/2026-05-15-pdf-tool-comparison-plan.md`
 - `.warden/research/pdf-tool-comparison/`
 - `docs/TOOL_COMPARISON.md`
@@ -142,6 +164,13 @@ parity still requires same-fixture sidecar/API runs.
 - `PATH="$PWD/target/sidecar-tools/venv/bin:$PATH" PDFP_SIDECAR_OUT="$PWD/target/sidecar-audit-deterministic" PDFP_SIDECAR_BACKENDS="native pdftotext-layout pymupdf4llm pdfplumber pdfminer camelot tabula ocrmypdf" bash scripts/sidecar-audit.sh` -> pass; OCRmyPDF skipped because `qpdf` is missing.
 - `scripts/generate-eval-fixtures.sh stage9-hard-images` -> pass.
 - `target/debug/pdfp inspect test-corpus/eval/stage9-hard-images.pdf --json` -> pass; generated pack has 4 pages.
+- `cargo test figure::detect::tests --bin pdfp` -> pass.
+- `cargo test figure_snapshots_claim_duplicate_caption_and_inner_labels --bin pdfp` -> pass.
+- `cargo run --quiet -- eval tests/eval_fixtures/` with worktree `example/pdf`
+  linked -> hard image fixtures pass; engineering fixtures skip when ignored
+  local PDFs are absent.
+- `cargo test` -> pass.
+- `cargo clippy --all-targets -- -D warnings` -> pass.
 - `git diff --check` -> pass.
 
 ## Known Followups
@@ -152,10 +181,8 @@ parity still requires same-fixture sidecar/API runs.
 - Table-system review recorded at
   `.warden/research/table-system-review/REPORT.md`, with detailed Stage 8.5
   plan at `.warden/plans/2026-05-15-stage8-5-table-precision-refactor.md`.
-- Stage 9 now has a deliberately labeled non-zero decorative-image pack. Next
-  tuning should lift decorative suppression above the current `1/2` and fix the
-  generated vector-only page, which is detected in debug JSON but does not
-  render into an acknowledged figure block.
+- Stage 9 source is complete, but installed CLI parity still needs an explicit
+  install or release step.
 - Tool parity still needs OCRmyPDF after OS dependencies are installed, plus
   same-fixture runs for Docling, Marker, MinerU, Mathpix, Adobe PDF Extract,
   LlamaParse, and Unstructured. The deterministic comparison is now measured,

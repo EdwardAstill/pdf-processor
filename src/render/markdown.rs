@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::document::types::{
-    Block, BlockKind, DetectedTable, Document, ExtractedImage, Page, Section, TableRender,
+    Bbox, Block, BlockKind, DetectedTable, Document, ExtractedImage, Page, Section, TableRender,
 };
 use crate::error::VtvResult;
 use regex::Regex;
@@ -148,6 +148,10 @@ impl MarkdownRenderer {
 
             let block = blocks[i];
             if should_suppress_repeated_text_block(block, page, render_ctx) {
+                i += 1;
+                continue;
+            }
+            if should_suppress_block_claimed_by_figure(block, &blocks, &media_plan) {
                 i += 1;
                 continue;
             }
@@ -535,6 +539,87 @@ fn media_has_caption(block: &Block, blocks: &[&Block], page: &Page) -> bool {
                 gap <= page.height * 0.06
             }
     })
+}
+
+fn should_suppress_block_claimed_by_figure(
+    block: &Block,
+    blocks: &[&Block],
+    media_plan: &PageMediaPlan,
+) -> bool {
+    if is_media_block(block)
+        || matches!(
+            block.kind,
+            BlockKind::CoordinateTable { .. }
+                | BlockKind::Formula { .. }
+                | BlockKind::FormulaReview { .. }
+                | BlockKind::CodeBlock
+        )
+    {
+        return false;
+    }
+
+    let kept_figures = blocks.iter().copied().filter(|candidate| {
+        media_plan.kept_block_ids.contains(&candidate.id)
+            && matches!(candidate.kind, BlockKind::Figure { .. })
+    });
+
+    for figure in kept_figures {
+        if caption_text_matches_figure(block, figure) {
+            return true;
+        }
+        if short_text_inside_figure(block, figure) {
+            return true;
+        }
+    }
+    false
+}
+
+fn caption_text_matches_figure(block: &Block, figure: &Block) -> bool {
+    if !matches!(block.kind, BlockKind::Caption) {
+        return false;
+    }
+    let BlockKind::Figure {
+        caption: Some(caption),
+        ..
+    } = &figure.kind
+    else {
+        return false;
+    };
+    normalize_caption_for_match(&block.text) == normalize_caption_for_match(caption)
+}
+
+fn normalize_caption_for_match(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn short_text_inside_figure(block: &Block, figure: &Block) -> bool {
+    if !matches!(
+        block.kind,
+        BlockKind::Paragraph | BlockKind::Heading { .. } | BlockKind::ListItem { .. }
+    ) {
+        return false;
+    }
+    let trimmed = block.text.trim();
+    if trimmed.is_empty() || trimmed.split_whitespace().count() > 8 || trimmed.len() > 96 {
+        return false;
+    }
+    bbox_overlap_ratio(block.bbox, figure.bbox) >= 0.85
+}
+
+fn bbox_overlap_ratio(a: Bbox, b: Bbox) -> f32 {
+    let x0 = a.x0.max(b.x0);
+    let y0 = a.y0.max(b.y0);
+    let x1 = a.x1.min(b.x1);
+    let y1 = a.y1.min(b.y1);
+    if x1 <= x0 || y1 <= y0 {
+        return 0.0;
+    }
+    let intersection = (x1 - x0) * (y1 - y0);
+    intersection / a.area().max(1.0)
 }
 
 fn media_fingerprint(block: &Block, page: &Page) -> MediaFingerprint {
@@ -2556,6 +2641,69 @@ mod tests {
         assert!(!result.markdown.contains("images/logo.png"));
         assert!(result.markdown.contains("images/figure.png"));
         assert!(result.markdown.contains("*Figure 1: Model overview*"));
+    }
+
+    #[test]
+    fn figure_snapshots_claim_duplicate_caption_and_inner_labels() {
+        let page = Page {
+            page_num: 0,
+            width: 595.0,
+            height: 842.0,
+            blocks: vec![
+                make_block_at(
+                    0,
+                    "The diagram below is vector-only.",
+                    BlockKind::Paragraph,
+                    Bbox::new(70.0, 80.0, 520.0, 110.0),
+                    11.0,
+                    0,
+                ),
+                make_block_at(
+                    1,
+                    "",
+                    BlockKind::Figure {
+                        path: Some("images/page1_fig1.png".to_string()),
+                        caption: Some("Figure 3: Vector-only pipeline diagram".to_string()),
+                    },
+                    Bbox::new(90.0, 140.0, 500.0, 300.0),
+                    0.0,
+                    1,
+                ),
+                make_block_at(
+                    2,
+                    "Extract Classify Render",
+                    BlockKind::Paragraph,
+                    Bbox::new(220.0, 210.0, 380.0, 230.0),
+                    9.0,
+                    2,
+                ),
+                make_block_at(
+                    3,
+                    "Figure 3: Vector-only pipeline diagram",
+                    BlockKind::Caption,
+                    Bbox::new(150.0, 320.0, 450.0, 338.0),
+                    9.0,
+                    3,
+                ),
+            ],
+            override_markdown: None,
+        };
+        let doc = make_doc(vec![page]);
+        let renderer = MarkdownRenderer::new(false, None);
+        let result = renderer.render_document(&doc).unwrap();
+
+        assert!(result
+            .markdown
+            .contains("The diagram below is vector-only."));
+        assert!(result.markdown.contains("images/page1_fig1.png"));
+        assert_eq!(
+            result
+                .markdown
+                .matches("Vector-only pipeline diagram")
+                .count(),
+            1
+        );
+        assert!(!result.markdown.contains("Extract Classify Render"));
     }
 
     fn make_flagged_para(text: &str, bold: bool, italic: bool) -> Block {

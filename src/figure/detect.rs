@@ -95,6 +95,7 @@ pub fn detect_figure_candidates(
     for group in image_only_groups(
         &visual_seeds,
         &consumed_images,
+        blocks,
         raw_page.width,
         raw_page.height,
     ) {
@@ -204,6 +205,10 @@ fn estimate_caption_only_region(
     page_height: f32,
     blocks: &[Block],
 ) -> Option<(Bbox, u8, String)> {
+    if let Some(bbox) = nearby_diagram_text_region(caption, page_width, page_height, blocks) {
+        return Some((bbox, 68, "caption-text-region-estimate".to_string()));
+    }
+
     let estimated_height = (page_height * 0.24).clamp(90.0, 220.0);
     let gap = 10.0;
     let above = Bbox::new(
@@ -257,6 +262,125 @@ fn estimate_caption_only_region(
         })
 }
 
+fn nearby_diagram_text_region(
+    caption: Bbox,
+    page_width: f32,
+    page_height: f32,
+    blocks: &[Block],
+) -> Option<Bbox> {
+    let max_gap = (page_height * 0.18).clamp(70.0, 160.0);
+    let mut above: Vec<Bbox> = Vec::new();
+    let mut below: Vec<Bbox> = Vec::new();
+
+    for block in blocks {
+        if matches!(block.kind, BlockKind::Caption) || looks_like_caption(&block.text) {
+            continue;
+        }
+        if !looks_like_diagram_label_text(&block.text) || !horizontal_related(block.bbox, caption) {
+            continue;
+        }
+
+        if block.bbox.y1 <= caption.y0 {
+            let gap = caption.y0 - block.bbox.y1;
+            if gap <= max_gap {
+                above.push(block.bbox);
+            }
+        } else if caption.y1 <= block.bbox.y0 {
+            let gap = block.bbox.y0 - caption.y1;
+            if gap <= max_gap {
+                below.push(block.bbox);
+            }
+        }
+    }
+
+    let above_bbox = bbox_from_parts(&above);
+    let below_bbox = bbox_from_parts(&below);
+    let chosen = match (above_bbox, below_bbox) {
+        (Some(above), Some(below)) => {
+            let above_gap = caption.y0 - above.y1;
+            let below_gap = below.y0 - caption.y1;
+            Some(if above_gap <= below_gap { above } else { below })
+        }
+        (Some(above), None) => Some(above),
+        (None, Some(below)) => Some(below),
+        (None, None) => None,
+    }?;
+
+    let x_padding = (page_width * 0.14).max(56.0);
+    let y_padding = (page_height * 0.065).max(42.0);
+    Some(Bbox::new(
+        (chosen.x0 - x_padding).max(0.0),
+        (chosen.y0 - y_padding).max(0.0),
+        (chosen.x1 + x_padding).min(page_width),
+        (chosen.y1 + y_padding).min(page_height),
+    ))
+}
+
+fn bbox_from_parts(parts: &[Bbox]) -> Option<Bbox> {
+    parts.iter().copied().reduce(|bbox, part| bbox.union(&part))
+}
+
+fn looks_like_diagram_label_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.len() > 72 || trimmed.contains('\n') {
+        return false;
+    }
+
+    let word_count = trimmed.split_whitespace().count();
+    if word_count > 6 {
+        return false;
+    }
+    if trimmed.ends_with('.') || trimmed.ends_with('?') || trimmed.ends_with('!') {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let prose_words = [
+        " the ",
+        " and ",
+        " that ",
+        " this ",
+        " should ",
+        " because ",
+        " with ",
+        " from ",
+        " into ",
+    ];
+    if word_count >= 3
+        && prose_words
+            .iter()
+            .any(|needle| format!(" {lower} ").contains(needle))
+    {
+        return false;
+    }
+
+    if word_count >= 2 {
+        let title_like_words = trimmed
+            .split_whitespace()
+            .filter(|word| {
+                word.chars()
+                    .next()
+                    .is_some_and(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
+            })
+            .count();
+        if title_like_words * 2 <= word_count {
+            return false;
+        }
+    } else if !looks_camel_or_all_caps(trimmed) {
+        return false;
+    }
+
+    trimmed
+        .chars()
+        .all(|ch| ch.is_alphanumeric() || ch.is_whitespace() || matches!(ch, '-' | '/' | '+' | '&'))
+}
+
+fn looks_camel_or_all_caps(text: &str) -> bool {
+    let uppercase = text.chars().filter(|ch| ch.is_ascii_uppercase()).count();
+    let lowercase = text.chars().filter(|ch| ch.is_ascii_lowercase()).count();
+    uppercase >= 2 || (uppercase >= 1 && lowercase == 0)
+}
+
 fn body_text_contamination(region: Bbox, caption: Bbox, blocks: &[Block]) -> f32 {
     let overlap_area: f32 = blocks
         .iter()
@@ -287,6 +411,7 @@ fn intersection_area(a: Bbox, b: Bbox) -> f32 {
 fn image_only_groups<'a>(
     images: &[&'a ImageRef],
     consumed: &[bool],
+    blocks: &[Block],
     page_width: f32,
     page_height: f32,
 ) -> Vec<Vec<&'a ImageRef>> {
@@ -320,6 +445,10 @@ fn image_only_groups<'a>(
             continue;
         }
 
+        if looks_like_uncaptioned_decorative_banner(image.bbox, blocks, page_width, page_height) {
+            continue;
+        }
+
         if let Some(group) = groups.iter_mut().find(|group| {
             group
                 .iter()
@@ -331,6 +460,39 @@ fn image_only_groups<'a>(
         }
     }
     merge_image_groups_by_band(groups, page_width)
+}
+
+fn looks_like_uncaptioned_decorative_banner(
+    bbox: Bbox,
+    blocks: &[Block],
+    page_width: f32,
+    page_height: f32,
+) -> bool {
+    if blocks
+        .iter()
+        .any(|block| matches!(block.kind, BlockKind::Caption) || looks_like_caption(&block.text))
+    {
+        return false;
+    }
+
+    let width_ratio = bbox.width() / page_width.max(1.0);
+    let height_ratio = bbox.height() / page_height.max(1.0);
+    let area_ratio = bbox.area() / (page_width.max(1.0) * page_height.max(1.0));
+    let upper_page = bbox.center_y() < page_height * 0.36;
+    let wide_banner = width_ratio >= 0.58 && height_ratio <= 0.30 && area_ratio >= 0.04;
+    if !(upper_page && wide_banner) {
+        return false;
+    }
+
+    blocks.iter().any(|block| {
+        matches!(
+            block.kind,
+            BlockKind::Paragraph | BlockKind::Heading { .. } | BlockKind::ListItem { .. }
+        ) && block.bbox.y0 >= bbox.y1
+            && block.bbox.y0 - bbox.y1 <= page_height * 0.22
+            && block.bbox.x0 < bbox.x1
+            && block.bbox.x1 > bbox.x0
+    })
 }
 
 fn merge_image_groups_by_band(groups: Vec<Vec<&ImageRef>>, page_width: f32) -> Vec<Vec<&ImageRef>> {
@@ -586,6 +748,42 @@ mod tests {
         let raw = raw_page(vec![Bbox::new(10.0, 10.0, 24.0, 24.0)]);
         let candidates = detect_figure_candidates(&raw, &[], FigureDetectionOptions::default());
         assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn rejects_uncaptioned_top_banner_with_following_prose() {
+        let raw = raw_page(vec![Bbox::new(50.0, 80.0, 550.0, 250.0)]);
+        let body = paragraph(
+            2,
+            Bbox::new(72.0, 275.0, 520.0, 330.0),
+            "This page has a decorative masthead before the real body text.",
+        );
+
+        let candidates = detect_figure_candidates(&raw, &[body], FigureDetectionOptions::default());
+
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn caption_only_region_uses_nearby_diagram_text() {
+        let raw = raw_page(Vec::new());
+        let diagram_label = paragraph(
+            2,
+            Bbox::new(220.0, 280.0, 380.0, 296.0),
+            "Extract Classify Render",
+        );
+        let caption = caption(360.0, "Figure 3: vector-only pipeline diagram");
+
+        let candidates = detect_figure_candidates(
+            &raw,
+            &[diagram_label, caption],
+            FigureDetectionOptions::default(),
+        );
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].reason, "caption-text-region-estimate");
+        assert!(candidates[0].bbox.y0 < 260.0);
+        assert!(candidates[0].bbox.y1 < 360.0);
     }
 
     #[test]

@@ -101,13 +101,14 @@ The generated PDF is written to ignored
 `test-corpus/eval/stage9-hard-images.pdf` from tracked Typst/SVG sources under
 `tests/eval_fixtures/stage9_hard_images/`.
 
-With the generated hard pack present, current Stage 9 image totals are:
+With the generated hard pack present, Stage 9 source now measures:
 
-- decorative suppression: `1/2` on deliberately labeled decorative pages;
-- meaningful figure retention: `8/9` across hard image pages;
-- figure-caption pairing: `5/6`;
-- vector-only acknowledgement: `1/2`.
+- decorative suppression: `2/2` on deliberately labeled decorative pages;
+- meaningful figure retention: `9/9` across hard image pages;
+- figure-caption pairing: `6/6`;
+- vector-only acknowledgement: `2/2`.
 
-Those numbers are intentionally harder than the kickoff baseline. They expose
-the next image/vector tuning work while preserving the Stage 8 and Stage 8.5
-text, formula, and table floors.
+The generated pack alone is also fully green: `2/2` decorative suppression,
+`3/3` meaningful figure retention, `3/3` figure-caption pairing, and `1/1`
+vector-only acknowledgement. These are source-tree results; an installed CLI
+must be rebuilt or updated before `pdfp eval` reflects them.
