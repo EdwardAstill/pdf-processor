@@ -16,6 +16,8 @@ path = "src/main.rs"
 [dependencies]
 # PDF processing — bundles MuPDF from source, requires clang for bindgen
 mupdf = "0.6.0"
+# Low-level PDF object editing for document information metadata.
+lopdf = { version = "0.40", default-features = false }
 # CLI
 clap = { version = "4", features = ["derive"] }
 # Serialization
@@ -28,6 +30,8 @@ anyhow = "1"
 # Text processing
 regex = "1"
 unicode-segmentation = "1"
+# PDF date parsing/formatting for metadata commands.
+time = { version = "0.3", features = ["parsing"] }
 # Glob pattern matching for batch input
 glob = "0.3"
 # Docling hybrid backend (optional runtime, `--hybrid docling`)

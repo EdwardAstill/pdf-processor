@@ -10,6 +10,7 @@ pdfp convert --help
 pdfp ocr --help
 pdfp doctor --help
 pdfp inspect --help
+pdfp metadata set --help
 pdfp search --help
 pdfp eval --help
 pdfp pages --help
@@ -46,6 +47,7 @@ pdfp doctor
 | Create a searchable OCR PDF | `pdfp ocr input.pdf -o output.pdf` | New searchable PDF |
 | Check runtime dependencies | `pdfp doctor` | Human summary or JSON |
 | Inspect PDF pages | `pdfp inspect input.pdf` | Human summary or JSON, optionally OCR-assisted |
+| Read/write document metadata | `pdfp metadata ...` | Human summary, JSON, or new PDF |
 | Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON, optionally OCR-assisted |
 | Evaluate extraction quality | `pdfp eval fixtures/` | Formula, heading, table, and image metrics |
 | Extract/delete/split/reorder/merge pages | `pdfp pages ...` | New PDF files |
@@ -296,6 +298,49 @@ Use this before OCR or page editing to answer:
 - Does it look scan-heavy?
 - Which pages have readable embedded text?
 
+## Document Metadata
+
+Show document information metadata:
+
+```sh
+pdfp metadata show input.pdf
+pdfp metadata show input.pdf --json
+```
+
+Set fields and write a new PDF:
+
+```sh
+pdfp metadata set input.pdf -o output.pdf \
+  --title "Revised Report" \
+  --author "Engineering Team" \
+  --subject "Metadata audit" \
+  --keywords "pdf,metadata"
+```
+
+Clear fields and write a new PDF:
+
+```sh
+pdfp metadata clear input.pdf -o output.pdf --fields title,author
+pdfp metadata clear input.pdf -o output.pdf --fields all
+```
+
+Supported fields:
+
+| Field | Set flag | Clear value |
+| --- | --- | --- |
+| Title | `--title <TEXT>` | `title` |
+| Author | `--author <TEXT>` | `author` |
+| Subject | `--subject <TEXT>` | `subject` |
+| Keywords | `--keywords <TEXT>` | `keywords` |
+| Creator | `--creator <TEXT>` | `creator` |
+| Producer | `--producer <TEXT>` | `producer` |
+| Creation date | `--creation-date <DATE>` | `creation-date` |
+| Modification date | `--mod-date <DATE>` | `mod-date` |
+
+Dates accept `now`, RFC3339 such as `2026-05-19T12:30:00Z`, or raw PDF date syntax such as `D:20260519123000Z` and `D:20260519123000+08'00'`. `metadata set` automatically updates `ModDate` when changing another field; add `--no-touch-mod-date` to leave it unchanged.
+
+`pdfp metadata` edits the PDF document information dictionary. If the file also has XMP metadata, the command preserves XMP and reports a warning because XMP can still contain older values. PDFs with signature fields are refused by default; `--force-signed` allows writing a new file when you accept that signatures may be invalidated.
+
 ## Search Embedded Text
 
 Search all pages:
@@ -410,6 +455,7 @@ Supported resize options:
 - `pdfp` is local-first. Normal conversion, search, inspection, and page operations do not require a network service.
 - `--ocr auto` and `--ocr force` require OCRmyPDF plus Tesseract only when OCR is actually run.
 - `--hybrid docling` requires a separate Docling server.
-- Page editing commands write new PDFs and refuse to use the input path as the output path.
+- Page editing and metadata write commands write new PDFs and refuse to use the input path as the output path.
 - Search uses embedded PDF text unless local OCR is explicitly requested.
+- Dedicated metadata commands update Info dictionary fields only. They do not synchronize XMP packets.
 - Merge/reorder/imposition preserve page contents conservatively, but document-level metadata, outlines, forms, and annotations are not yet guaranteed.

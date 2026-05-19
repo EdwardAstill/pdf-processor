@@ -10,6 +10,7 @@ Active scope note: the main `pdfp` binary is now a local PDF processor. Markdown
 | --- | --- | ---: | ---: |
 | Unit tests (inline `#[cfg(test)]`) | `cargo test --bin pdfp` | broad inline suite | ~0.05 s |
 | CLI help smoke tests | `cargo test --test cli_help` | one pass over every command path | ~0.05 s |
+| Metadata CLI integration | `cargo test --test metadata` | show/set/clear, Unicode strings, dates, XMP warning, signed-PDF refusal | ~0.1 s |
 | Processor command units | `cargo test processor::` | focused parser/order tests | ~0.05 s |
 | Golden smoke/regression fixtures | `cargo test --test golden` | 4 (skip when fixtures are absent) | ~0.05 s+ |
 | Golden corpus sweep | `cargo test --test golden -- --ignored golden_corpus_sweep` | 1 (iterates 13 PDFs) | ~16 s |
@@ -77,6 +78,15 @@ target/debug/pdfp convert example/pdf/golden__lorem.pdf -o target/compat-convert
 target/debug/pdfp inspect example/pdf/golden__lorem.pdf --json \
   | jq '.page_count == 1'
 
+target/debug/pdfp metadata show example/pdf/golden__lorem.pdf --json \
+  | jq '.info | type == "object"'
+
+target/debug/pdfp metadata set example/pdf/golden__lorem.pdf \
+  -o target/lorem-metadata.pdf --title "Metadata Smoke" --no-touch-mod-date
+
+target/debug/pdfp metadata clear target/lorem-metadata.pdf \
+  -o target/lorem-metadata-cleared.pdf --fields title
+
 target/debug/pdfp search example/pdf/attention.pdf Attention --json \
   | jq '(.matches | length) > 0'
 
@@ -137,6 +147,7 @@ Current processor limitations:
 - **XY-Cut++ reading order** — 16 unit tests in `src/layout/xycut.rs::tests` exercising two-column pages, spanning titles, narrow-outlier retry, cross-layout pre-masking, and degenerate inputs.
 - **CLI help** — `tests/cli_help.rs` runs `pdfp --help` plus every nested command help path, including `pdfp pages extract --help`, `pdfp impose booklet --help`, and `pdfp page resize --help`.
 - **Processor CLI and PDF operations** — page range parsing, inspect/search smoke checks, safe extract/delete/split, graft-based reorder/merge, booklet ordering, 2-up page count, and A4 resize geometry.
+- **Metadata CLI** — `tests/metadata.rs` creates small PDFs with `lopdf` and verifies metadata show/set/clear round trips, same-path refusal, Unicode text strings, date validation, XMP warnings, and signed-PDF write refusal.
 - **Classifier heuristics** — tests in `src/layout/classifier.rs::tests` covering each `BlockKind` detection rule; the Phase 3 metadata tests verify struct-tree overrides and bold-at-body-size promotion using a mock `PageMetadata`.
 - **Metadata lookup** — 6 tests in `src/pdf/metadata.rs::tests` covering overlap scoring, bbox matching, and the stub loader.
 - **PDF extraction subscript/superscript logic** — 20+ tests in `src/pdf/extractor.rs::tests` exercising classify_char_script, group_into_text_rows, and real-world traces from AISC-360.

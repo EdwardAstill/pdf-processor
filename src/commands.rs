@@ -12,6 +12,7 @@ pub fn run(command: AppCommand) -> anyhow::Result<()> {
         AppCommand::Ocr(args) => processor::ocr_cmd::run(&args),
         AppCommand::Doctor(args) => processor::doctor::run(&args),
         AppCommand::Inspect(args) => processor::inspect::run(&args),
+        AppCommand::Metadata(args) => processor::metadata::run(&args),
         AppCommand::Search(args) => processor::search::run(&args),
         AppCommand::Eval(args) => run_eval(args),
         AppCommand::Pages(args) => processor::pages::run(&args),

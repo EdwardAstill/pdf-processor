@@ -4,7 +4,7 @@
 
 # pdf-processor
 
-`pdf-processor` is a local PDF processor. Its most mature workflow is converting PDFs into AI-friendly markdown, and the same binary now also has inspection, search, page editing, imposition, and resizing commands.
+`pdf-processor` is a local PDF processor. Its most mature workflow is converting PDFs into AI-friendly markdown, and the same binary now also has inspection, metadata, search, page editing, imposition, and resizing commands.
 
 The active codepath is:
 
@@ -22,6 +22,7 @@ Current top-level scope:
 - Markdown output for conversion
 - PDF output for page operations, imposition, and resizing
 - Inspect/search operations over embedded PDF text
+- Document information metadata read/write
 - Safe page operations that write new PDFs instead of editing inputs in place
 - Prototype page layout operations: 2-up, booklet, and page resize
 - Optional local OCR sidecar through OCRmyPDF for scan-heavy PDFs
@@ -61,6 +62,7 @@ pdfp convert <INPUT> [OPTIONS]
 pdfp ocr <INPUT> -o <OUTPUT> [--mode auto|force]
 pdfp doctor [--json]
 pdfp inspect <INPUT> [--json] [--ocr auto|force]
+pdfp metadata <show|set|clear> ...
 pdfp search <INPUT> <TEXT> [--json] [--ocr auto|force]
 pdfp eval <FIXTURES_DIR>
 pdfp pages <extract|delete|split|reorder|merge> ...
@@ -78,6 +80,7 @@ pdfp doctor --help
 pdfp convert --help
 pdfp ocr --help
 pdfp eval --help
+pdfp metadata set --help
 pdfp pages extract --help
 pdfp impose booklet --help
 pdfp page resize --help
@@ -230,6 +233,37 @@ pdfp search scan.pdf "invoice" --ocr auto --json
 
 By default, `search` uses text already present in the PDF. Add `--ocr auto` or `--ocr force` when image-only scans or damaged text layers need a searchable OCR derivative first.
 
+### Metadata
+
+Use `pdfp metadata` for document information dictionary fields such as title, author, subject, keywords, creator, producer, creation date, and modification date.
+
+```sh
+# Show document information metadata
+pdfp metadata show paper.pdf
+pdfp metadata show paper.pdf --json
+
+# Write a new PDF with updated fields
+pdfp metadata set paper.pdf -o paper.metadata.pdf \
+  --title "Revised Report" \
+  --author "Engineering Team" \
+  --keywords "pdf,metadata"
+
+# Preserve the existing modification date while changing text fields
+pdfp metadata set paper.pdf -o paper.titled.pdf \
+  --title "Revised Report" \
+  --no-touch-mod-date
+
+# Set dates with `now`, RFC3339, or raw PDF date syntax
+pdfp metadata set paper.pdf -o paper.dated.pdf \
+  --creation-date 2026-05-19T12:30:00Z \
+  --mod-date now
+
+# Clear selected fields
+pdfp metadata clear paper.pdf -o paper.cleaned.pdf --fields title,author
+```
+
+Metadata writes are Info-dictionary only. If a PDF also has XMP metadata, `pdfp` preserves it and reports a warning because XMP can still contain older values. PDFs that appear to contain signature fields are refused by default; use `--force-signed` only when you accept that writing a new file may invalidate signatures.
+
 ### Evaluation
 
 Use `pdfp eval` to run the local conversion pipeline against fixture JSON files
@@ -309,7 +343,7 @@ cargo build --release --features onnx-ocr
 target/release/pdfp convert paper.pdf --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr -o out/
 ```
 
-Processor commands produce PDFs or JSON/human summaries. They currently preserve page contents conservatively, but outlines, document-level metadata, forms, and annotations are not yet guaranteed across merge/reorder/imposition workflows.
+Processor commands produce PDFs or JSON/human summaries. Dedicated metadata commands update document information fields, but page merge/reorder/imposition workflows still do not guarantee outlines, metadata, forms, or annotations are preserved.
 
 ## Tests
 

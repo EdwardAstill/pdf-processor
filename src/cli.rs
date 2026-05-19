@@ -26,6 +26,8 @@ pub enum Command {
     Doctor(DoctorArgs),
     /// Inspect PDF metadata, page sizes, and scan-like signals
     Inspect(InspectArgs),
+    /// Read, set, and clear document information metadata
+    Metadata(MetadataCommand),
     /// Search PDF text and report matching pages
     Search(SearchArgs),
     /// Run quality evaluation against fixture JSON files
@@ -160,6 +162,134 @@ pub struct InspectArgs {
 
     #[command(flatten)]
     pub ocr: OcrOptions,
+}
+
+#[derive(Args, Debug)]
+pub struct MetadataCommand {
+    #[command(subcommand)]
+    pub command: MetadataSubcommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MetadataSubcommand {
+    /// Show document information metadata
+    Show(MetadataShowArgs),
+    /// Set document information metadata and write a new PDF
+    Set(MetadataSetArgs),
+    /// Clear selected document information metadata fields and write a new PDF
+    Clear(MetadataClearArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct MetadataShowArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// Emit machine-readable JSON to stdout
+    #[arg(long)]
+    pub json: bool,
+
+    /// Include PDF version and XMP/signature status in human output
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct MetadataSetArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// Output PDF
+    #[arg(short, long)]
+    pub output: PathBuf,
+
+    /// Set the document title
+    #[arg(long)]
+    pub title: Option<String>,
+
+    /// Set the document author
+    #[arg(long)]
+    pub author: Option<String>,
+
+    /// Set the document subject
+    #[arg(long)]
+    pub subject: Option<String>,
+
+    /// Set document keywords
+    #[arg(long)]
+    pub keywords: Option<String>,
+
+    /// Set the document creator
+    #[arg(long)]
+    pub creator: Option<String>,
+
+    /// Set the document producer
+    #[arg(long)]
+    pub producer: Option<String>,
+
+    /// Set creation date as `now`, RFC3339, or a PDF date such as `D:20260519123000Z`
+    #[arg(long)]
+    pub creation_date: Option<String>,
+
+    /// Set modification date as `now`, RFC3339, or a PDF date such as `D:20260519123000Z`
+    #[arg(long)]
+    pub mod_date: Option<String>,
+
+    /// Do not automatically update ModDate when setting other fields
+    #[arg(long)]
+    pub no_touch_mod_date: bool,
+
+    /// Allow writing PDFs that appear to contain signature fields
+    #[arg(long)]
+    pub force_signed: bool,
+
+    /// Emit machine-readable JSON to stdout
+    #[arg(long)]
+    pub json: bool,
+
+    /// Print changed field names to stderr
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct MetadataClearArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// Output PDF
+    #[arg(short, long)]
+    pub output: PathBuf,
+
+    /// Fields to clear. Use a comma list, for example `--fields title,author`.
+    #[arg(long, value_enum, value_delimiter = ',', num_args = 1.., required = true)]
+    pub fields: Vec<MetadataField>,
+
+    /// Allow writing PDFs that appear to contain signature fields
+    #[arg(long)]
+    pub force_signed: bool,
+
+    /// Emit machine-readable JSON to stdout
+    #[arg(long)]
+    pub json: bool,
+
+    /// Print cleared field names to stderr
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataField {
+    Title,
+    Author,
+    Subject,
+    Keywords,
+    Creator,
+    Producer,
+    CreationDate,
+    #[value(name = "mod-date", alias = "modification-date")]
+    ModDate,
+    All,
 }
 
 #[derive(Args, Debug)]
@@ -366,6 +496,7 @@ impl Cli {
             Some(Command::Ocr(args)) => Ok(AppCommand::Ocr(args)),
             Some(Command::Doctor(args)) => Ok(AppCommand::Doctor(args)),
             Some(Command::Inspect(args)) => Ok(AppCommand::Inspect(args)),
+            Some(Command::Metadata(args)) => Ok(AppCommand::Metadata(args)),
             Some(Command::Search(args)) => Ok(AppCommand::Search(args)),
             Some(Command::Eval(args)) => Ok(AppCommand::Eval(args)),
             Some(Command::Pages(args)) => Ok(AppCommand::Pages(args)),
@@ -392,6 +523,7 @@ pub enum AppCommand {
     Ocr(OcrArgs),
     Doctor(DoctorArgs),
     Inspect(InspectArgs),
+    Metadata(MetadataCommand),
     Search(SearchArgs),
     Eval(EvalArgs),
     Pages(PagesCommand),
