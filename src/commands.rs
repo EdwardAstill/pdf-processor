@@ -2,7 +2,7 @@ use anyhow::Context;
 use std::path::Path;
 
 use crate::batch;
-use crate::cli::{AppCommand, ConvertArgs, InputType};
+use crate::cli::{is_pdf, AppCommand, ConvertArgs};
 use crate::pipeline;
 use crate::processor;
 
@@ -92,11 +92,9 @@ fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn process_one(path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
-    let input_type = InputType::from_path(path)
-        .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
-
-    match input_type {
-        InputType::Pdf => pipeline::process_pdf(path, args),
+fn process_one(path: &Path, _args: &ConvertArgs) -> anyhow::Result<()> {
+    if !is_pdf(path) {
+        anyhow::bail!("Unsupported file type: {}", path.display());
     }
+    pipeline::process_pdf(path, _args)
 }

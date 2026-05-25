@@ -3,7 +3,7 @@
 use crate::document::types::{
     Block, BlockKind, DetectedTable, Document, ExtractedImage, Page, Section, TableRender,
 };
-use crate::error::VtvResult;
+use crate::error::PdfpResult;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -72,7 +72,7 @@ impl MarkdownRenderer {
         }
     }
 
-    pub fn render_document(&self, doc: &Document) -> VtvResult<RenderedDocument> {
+    pub fn render_document(&self, doc: &Document) -> PdfpResult<RenderedDocument> {
         let mut all_markdown = String::new();
         let mut all_images: Vec<ExtractedImage> = Vec::new();
         let mut image_counter = 0usize;
@@ -101,7 +101,7 @@ impl MarkdownRenderer {
         render_ctx: &RenderContext,
         _source_pdf: &Path,
         _image_counter: &mut usize,
-    ) -> VtvResult<(String, Vec<ExtractedImage>)> {
+    ) -> PdfpResult<(String, Vec<ExtractedImage>)> {
         let mut md = String::new();
         let images: Vec<ExtractedImage> = Vec::new();
 
@@ -1891,18 +1891,32 @@ mod tests {
         }
     }
 
+    fn make_page(page_num: usize, width: f32, height: f32, blocks: Vec<Block>) -> Page {
+        Page {
+            page_num,
+            width,
+            height,
+            blocks,
+            override_markdown: None,
+        }
+    }
+
+    fn make_page_override(page_num: usize, width: f32, height: f32, blocks: Vec<Block>, override_md: &str) -> Page {
+        Page {
+            page_num,
+            width,
+            height,
+            blocks,
+            override_markdown: Some(override_md.to_string()),
+        }
+    }
+
     #[test]
     fn renders_heading_paragraph() {
-        let page = Page {
-            page_num: 0,
-            width: 595.0,
-            height: 842.0,
-            blocks: vec![
-                make_block(0, "Introduction", BlockKind::Heading { level: 1 }, 0),
-                make_block(1, "Hello world.", BlockKind::Paragraph, 1),
-            ],
-            override_markdown: None,
-        };
+        let page = make_page(0, 595.0, 842.0, vec![
+            make_block(0, "Introduction", BlockKind::Heading { level: 1 }, 0),
+            make_block(1, "Hello world.", BlockKind::Paragraph, 1),
+        ]);
         let doc = make_doc(vec![page]);
         let renderer = MarkdownRenderer::new(false, None);
         let result = renderer.render_document(&doc).unwrap();

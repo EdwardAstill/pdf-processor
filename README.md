@@ -6,6 +6,16 @@
 
 `pdf-processor` is a local PDF processor. Its most mature workflow is converting PDFs into AI-friendly markdown, and the same binary now also has inspection, metadata, search, page editing, imposition, and resizing commands.
 
+**What makes pdfp different:**
+- **Single binary, zero Python** — no GPU, no venv, just one ~46MB compiled binary
+- **Offline-first** — all processing is local; no cloud API calls unless you opt in
+- **Full pipeline** — extraction → layout analysis (XY-Cut++) → block classification → Markdown rendering, not just text dumping
+- **Built-in eval** — precision/recall metrics for formula detection, heading accuracy, table recall
+- **Page operations** — extract, delete, split, reorder, merge, resize, impose — all in the same tool
+- **Conservative mode** — `--conservative` disables speculative reconstruction for engineering/legal documents
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture and [docs/TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md) for how pdfp compares to Docling, MinerU, Marker, and other tools.
+
 The active codepath is:
 
 1. Open PDF with MuPDF.
@@ -16,25 +26,27 @@ The active codepath is:
 
 ## Scope
 
-Current top-level scope:
-
-- PDF input only
-- Markdown output for conversion
-- PDF output for page operations, imposition, and resizing
-- Inspect/search operations over embedded PDF text
-- Document information metadata read/write
-- Safe page operations that write new PDFs instead of editing inputs in place
-- Prototype page layout operations: 2-up, booklet, and page resize
-- Optional local OCR sidecar through OCRmyPDF for scan-heavy PDFs
+**In active scope:**
+- PDF input → Markdown conversion (the core workflow)
+- PDF page operations: extract, delete, split, reorder, merge, resize
+- Imposition: 2-up, booklet
+- Inspection: metadata, page geometry, scan detection, text density
+- Search: embedded text search with page reporting
+- Document info metadata: read, set, clear
+- Optional OCR preprocessing via OCRmyPDF
 - Optional hybrid Docling assist for hard pages
-- Local-first processing
+- Quality evaluation against fixture JSON files
 
-Out of active scope at the repo root:
+**Planned (see [plans/stages/plan.md](plans/stages/plan.md)):**
+- Stage 2: outlines/TOC, password unlock, rotate, annotations, compress, watermarks
+- Stage 3: form filling, PDF/A validation, CJK/RTL, internal links
+- Stage 4: Markdown→PDF round-trip, digital signatures, PDF repair
 
-- DOCX / EPUB / PPTX / HTML conversion
-- Markdown to Typst
-- SVG to PNG
-- RAG / KG / wiki / JSON export modes
+**Out of active scope at the repo root:**
+- DOCX / EPUB / PPTX / HTML conversion (removed in v0.4.0)
+- Markdown to Typst (removed in v0.4.0)
+- SVG to PNG (removed in v0.4.0)
+- RAG / KG / wiki / JSON export modes (removed in v0.4.0)
 
 ## Install
 
@@ -356,3 +368,7 @@ See [`docs/TESTING.md`](docs/TESTING.md) for the full matrix.
 ## Wiki
 
 For deeper implementation notes on PDF structure, text extraction, layout recovery, tables, OCR, Markdown rendering, and evaluation, see the [`wiki/`](wiki/README.md).
+
+For architecture decisions and module map, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+For the staged improvement roadmap, see [plans/stages/plan.md](plans/stages/plan.md).

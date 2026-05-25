@@ -5,7 +5,7 @@ use mupdf::text_page::TextBlockType;
 use mupdf::{Document, ImageFormat, MetadataName, TextPageFlags};
 
 use crate::document::types::{Bbox, DocumentMetadata, ImageRef, RawPage, RawTextBlock, RawWord};
-use crate::error::{VtvError, VtvResult};
+use crate::error::{PdfpError, PdfpResult};
 
 #[path = "text_cleanup.rs"]
 mod text_cleanup;
@@ -17,14 +17,14 @@ pub struct PdfExtractor;
 impl PdfExtractor {
     /// Extract all pages from a PDF file.
     #[allow(dead_code)]
-    pub fn extract_pages(path: &Path) -> VtvResult<Vec<RawPage>> {
+    pub fn extract_pages(path: &Path) -> PdfpResult<Vec<RawPage>> {
         let path_str = path.to_string_lossy();
-        let doc = Document::open(path_str.as_ref()).map_err(|e| VtvError::PdfOpen {
+        let doc = Document::open(path_str.as_ref()).map_err(|e| PdfpError::PdfOpen {
             path: path.to_path_buf(),
             message: e.to_string(),
         })?;
 
-        let page_count = doc.page_count().map_err(|e| VtvError::PdfOpen {
+        let page_count = doc.page_count().map_err(|e| PdfpError::PdfOpen {
             path: path.to_path_buf(),
             message: e.to_string(),
         })?;
@@ -39,14 +39,14 @@ impl PdfExtractor {
 
     /// Extract document metadata (title, author, subject, page count).
     #[allow(dead_code)]
-    pub fn extract_metadata(path: &Path) -> VtvResult<DocumentMetadata> {
+    pub fn extract_metadata(path: &Path) -> PdfpResult<DocumentMetadata> {
         let path_str = path.to_string_lossy();
-        let doc = Document::open(path_str.as_ref()).map_err(|e| VtvError::PdfOpen {
+        let doc = Document::open(path_str.as_ref()).map_err(|e| PdfpError::PdfOpen {
             path: path.to_path_buf(),
             message: e.to_string(),
         })?;
 
-        let page_count = doc.page_count().map_err(|e| VtvError::PdfOpen {
+        let page_count = doc.page_count().map_err(|e| PdfpError::PdfOpen {
             path: path.to_path_buf(),
             message: e.to_string(),
         })? as usize;
@@ -84,14 +84,14 @@ impl PdfExtractor {
     }
 
     /// Extract all pages and metadata from a PDF in a single file open.
-    pub fn extract(path: &Path) -> VtvResult<(Vec<RawPage>, DocumentMetadata)> {
+    pub fn extract(path: &Path) -> PdfpResult<(Vec<RawPage>, DocumentMetadata)> {
         let path_str = path.to_string_lossy();
-        let doc = Document::open(path_str.as_ref()).map_err(|e| VtvError::PdfOpen {
+        let doc = Document::open(path_str.as_ref()).map_err(|e| PdfpError::PdfOpen {
             path: path.to_path_buf(),
             message: e.to_string(),
         })?;
 
-        let page_count = doc.page_count().map_err(|e| VtvError::PdfExtraction {
+        let page_count = doc.page_count().map_err(|e| PdfpError::PdfExtraction {
             page: 0,
             message: e.to_string(),
         })? as usize;
@@ -123,22 +123,22 @@ impl PdfExtractor {
 
     // --- private helpers ---
 
-    fn extract_page(doc: &Document, page_num: usize) -> VtvResult<RawPage> {
+    fn extract_page(doc: &Document, page_num: usize) -> PdfpResult<RawPage> {
         let page = doc
             .load_page(page_num as i32)
-            .map_err(|e| VtvError::PdfExtraction {
+            .map_err(|e| PdfpError::PdfExtraction {
                 page: page_num,
                 message: e.to_string(),
             })?;
 
-        let bounds = page.bounds().map_err(|e| VtvError::PdfExtraction {
+        let bounds = page.bounds().map_err(|e| PdfpError::PdfExtraction {
             page: page_num,
             message: e.to_string(),
         })?;
 
         let text_page = page
             .to_text_page(TextPageFlags::PRESERVE_IMAGES)
-            .map_err(|e| VtvError::PdfExtraction {
+            .map_err(|e| PdfpError::PdfExtraction {
                 page: page_num,
                 message: e.to_string(),
             })?;

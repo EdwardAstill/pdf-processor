@@ -1,5 +1,5 @@
 use crate::cli::SUPPORTED_EXTENSIONS;
-use crate::error::{VtvError, VtvResult};
+use crate::error::{PdfpError, PdfpResult};
 use glob::glob;
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,7 @@ fn is_supported(path: &Path) -> bool {
 }
 
 /// Resolve the input string to a list of PDF paths.
-pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
+pub fn resolve_inputs(input: &str) -> PdfpResult<Vec<PathBuf>> {
     let path = Path::new(input);
 
     // Single file
@@ -21,7 +21,7 @@ pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
             return Ok(vec![path.to_path_buf()]);
         }
 
-        return Err(VtvError::InvalidInput(
+        return Err(PdfpError::InvalidInput(
             input.to_string(),
             format!(
                 "unsupported file type; supported extensions: {}",
@@ -33,11 +33,11 @@ pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
     // Directory — find all PDFs
     if path.is_dir() {
         let mut files: Vec<PathBuf> = Vec::new();
-        for entry in std::fs::read_dir(path).map_err(|e| VtvError::Io {
+        for entry in std::fs::read_dir(path).map_err(|e| PdfpError::Io {
             path: path.to_path_buf(),
             source: e,
         })? {
-            let entry = entry.map_err(|e| VtvError::Io {
+            let entry = entry.map_err(|e| PdfpError::Io {
                 path: path.to_path_buf(),
                 source: e,
             })?;
@@ -47,7 +47,7 @@ pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
             }
         }
         if files.is_empty() {
-            return Err(VtvError::InvalidInput(
+            return Err(PdfpError::InvalidInput(
                 input.to_string(),
                 "no supported files found in directory".to_string(),
             ));
@@ -58,13 +58,13 @@ pub fn resolve_inputs(input: &str) -> VtvResult<Vec<PathBuf>> {
 
     // Glob pattern
     let matches: Vec<PathBuf> = glob(input)
-        .map_err(|e| VtvError::InvalidInput(input.to_string(), e.to_string()))?
+        .map_err(|e| PdfpError::InvalidInput(input.to_string(), e.to_string()))?
         .filter_map(|r| r.ok())
         .filter(|p| is_supported(p))
         .collect();
 
     if matches.is_empty() {
-        return Err(VtvError::InvalidInput(
+        return Err(PdfpError::InvalidInput(
             input.to_string(),
             "no matching supported files found".to_string(),
         ));

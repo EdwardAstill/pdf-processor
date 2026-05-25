@@ -8,7 +8,7 @@ use std::time::Duration;
 use reqwest::blocking::{multipart, Client};
 use serde::Deserialize;
 
-use crate::error::{VtvError, VtvResult};
+use crate::error::{PdfpError, PdfpResult};
 
 /// Request options we send to docling-serve. Mirrors the subset of
 /// `PipelineOptions` that affects output quality for our use case.
@@ -42,12 +42,12 @@ impl DoclingClient {
     /// Upload in-memory PDF bytes to docling-serve and return the response's
     /// `md_content`. Used by per-page routing where the bytes come from a
     /// single-page PDF extracted in memory.
-    pub fn convert_bytes_to_markdown(&self, bytes: Vec<u8>, filename: &str) -> VtvResult<String> {
+    pub fn convert_bytes_to_markdown(&self, bytes: Vec<u8>, filename: &str) -> PdfpResult<String> {
         let endpoint = format!("{}/v1/convert/file", self.base_url);
         let part = multipart::Part::bytes(bytes)
             .file_name(filename.to_string())
             .mime_str("application/pdf")
-            .map_err(|e| VtvError::HybridBackend {
+            .map_err(|e| PdfpError::HybridBackend {
                 url: endpoint.clone(),
                 message: format!("could not build multipart part: {e}"),
             })?;
@@ -59,13 +59,13 @@ impl DoclingClient {
         self.send_and_parse(&endpoint, form)
     }
 
-    fn send_and_parse(&self, endpoint: &str, form: multipart::Form) -> VtvResult<String> {
+    fn send_and_parse(&self, endpoint: &str, form: multipart::Form) -> PdfpResult<String> {
         let response = self
             .http
             .post(endpoint)
             .multipart(form)
             .send()
-            .map_err(|e| VtvError::HybridBackend {
+            .map_err(|e| PdfpError::HybridBackend {
                 url: endpoint.to_string(),
                 message: format!("request failed: {e}"),
             })?;
@@ -73,25 +73,25 @@ impl DoclingClient {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().unwrap_or_default();
-            return Err(VtvError::HybridBackend {
+            return Err(PdfpError::HybridBackend {
                 url: endpoint.to_string(),
                 message: format!("HTTP {status}: {body}"),
             });
         }
 
-        let parsed: ConvertResponse = response.json().map_err(|e| VtvError::HybridBackend {
+        let parsed: ConvertResponse = response.json().map_err(|e| PdfpError::HybridBackend {
             url: endpoint.to_string(),
             message: format!("response was not valid JSON: {e}"),
         })?;
 
         let md = parsed
             .extract_markdown()
-            .ok_or_else(|| VtvError::HybridBackend {
+            .ok_or_else(|| PdfpError::HybridBackend {
                 url: endpoint.to_string(),
                 message: "response contained no markdown content".to_string(),
             })?;
         if md.trim().is_empty() {
-            return Err(VtvError::HybridBackend {
+            return Err(PdfpError::HybridBackend {
                 url: self.base_url.clone(),
                 message: "docling returned empty markdown".to_string(),
             });

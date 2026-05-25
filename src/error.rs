@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Error type for pdfp operations. Marked allow(dead_code) because many variants
+/// are only used through the PdfpResult<T> type alias, not directly referenced.
 #[derive(Error, Debug)]
 #[allow(dead_code)]
-pub enum VtvError {
+pub enum PdfpError {
     #[error("Failed to open PDF '{path}': {message}")]
     PdfOpen { path: PathBuf, message: String },
 
@@ -36,5 +38,5 @@ pub enum VtvError {
     HybridBackend { url: String, message: String },
 }
 
-/// Convenience result type for vtv operations.
-pub type VtvResult<T> = Result<T, VtvError>;
+/// Convenience result type for pdfp operations.
+pub type PdfpResult<T> = Result<T, PdfpError>;

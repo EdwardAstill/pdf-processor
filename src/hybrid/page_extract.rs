@@ -13,24 +13,24 @@ use std::path::{Path, PathBuf};
 
 use mupdf::pdf::PdfDocument;
 
-use crate::error::{VtvError, VtvResult};
+use crate::error::{PdfpError, PdfpResult};
 
 /// Extract page `target_page` (0-indexed) of the PDF at `src` as a
 /// single-page PDF and return the encoded bytes.
-pub fn extract_page_as_pdf_bytes(src: &Path, target_page: usize) -> VtvResult<Vec<u8>> {
+pub fn extract_page_as_pdf_bytes(src: &Path, target_page: usize) -> PdfpResult<Vec<u8>> {
     let src_str = src.to_string_lossy();
-    let mut pdf = PdfDocument::open(src_str.as_ref()).map_err(|e| VtvError::PdfOpen {
+    let mut pdf = PdfDocument::open(src_str.as_ref()).map_err(|e| PdfpError::PdfOpen {
         path: src.to_path_buf(),
         message: e.to_string(),
     })?;
 
-    let page_count = pdf.page_count().map_err(|e| VtvError::PdfExtraction {
+    let page_count = pdf.page_count().map_err(|e| PdfpError::PdfExtraction {
         page: target_page,
         message: e.to_string(),
     })?;
 
     if target_page as i32 >= page_count {
-        return Err(VtvError::PdfExtraction {
+        return Err(PdfpError::PdfExtraction {
             page: target_page,
             message: format!(
                 "target page {} out of range (doc has {} pages)",
@@ -44,7 +44,7 @@ pub fn extract_page_as_pdf_bytes(src: &Path, target_page: usize) -> VtvResult<Ve
         if i == target_page as i32 {
             continue;
         }
-        pdf.delete_page(i).map_err(|e| VtvError::PdfExtraction {
+        pdf.delete_page(i).map_err(|e| PdfpError::PdfExtraction {
             page: i as usize,
             message: format!("delete_page failed: {e}"),
         })?;
@@ -52,12 +52,12 @@ pub fn extract_page_as_pdf_bytes(src: &Path, target_page: usize) -> VtvResult<Ve
 
     let temp_path = temp_file_path(src, target_page);
     let temp_str = temp_path.to_string_lossy();
-    pdf.save(temp_str.as_ref()).map_err(|e| VtvError::Io {
+    pdf.save(temp_str.as_ref()).map_err(|e| PdfpError::Io {
         path: temp_path.clone(),
         source: std::io::Error::other(e.to_string()),
     })?;
 
-    let bytes = std::fs::read(&temp_path).map_err(|e| VtvError::Io {
+    let bytes = std::fs::read(&temp_path).map_err(|e| PdfpError::Io {
         path: temp_path.clone(),
         source: e,
     })?;

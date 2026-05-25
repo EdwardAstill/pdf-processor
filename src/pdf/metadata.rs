@@ -143,13 +143,16 @@ pub fn load_page_metadata(_pdf: &std::path::Path, _page_num: usize) -> Option<Pa
 
 #[cfg(feature = "pdfium-metadata")]
 pub fn load_page_metadata(pdf: &std::path::Path, page_num: usize) -> Option<PageMetadata> {
+    static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     match pdfium_impl::load(pdf, page_num) {
         Ok(md) => Some(md),
         Err(e) => {
-            eprintln!(
-                "  pdfium-metadata: page {} metadata unavailable ({e})",
-                page_num + 1
-            );
+            WARNED.get_or_init(|| {
+                eprintln!(
+                    "  pdfium-metadata: font/struct-tree metadata unavailable ({e}); \
+                    install libpdfium for richer heading detection"
+                );
+            });
             None
         }
     }

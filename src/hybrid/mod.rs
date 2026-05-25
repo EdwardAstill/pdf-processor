@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::document::types::Document;
-use crate::error::VtvResult;
+use crate::error::PdfpResult;
 
 /// Routing policy for `--hybrid docling`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +63,7 @@ pub fn apply_to_document(
     timeout: Duration,
     cache_dir: Option<&Path>,
     verbose: bool,
-) -> VtvResult<HybridStats> {
+) -> PdfpResult<HybridStats> {
     let mut stats = HybridStats {
         pages_total: doc.pages.len(),
         ..Default::default()
