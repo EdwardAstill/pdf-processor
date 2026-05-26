@@ -14,40 +14,36 @@ fn bbox() -> Bbox {
 }
 
 fn make_block(kind: BlockKind, text: &str) -> Block {
-    Block {
-        id: 0,
-        bbox: bbox(),
-        text: text.to_string(),
-        kind,
-        font_size: 12.0,
-        font_name: "Times".to_string(),
-        page_num: 0,
-        reading_order: 0,
-        bold: false,
-        italic: false,
-    }
+    Block { override_markdown: None, id: 0,
+    bbox: bbox(),
+    text: text.to_string(),
+    kind,
+    font_size: 12.0,
+    font_name: "Times".to_string(),
+    page_num: 0,
+    reading_order: 0,
+    bold: false,
+    italic: false, }
 }
 
 fn make_table_block(bbox: Bbox) -> Block {
-    Block {
-        id: 0,
-        bbox,
-        text: String::new(),
-        kind: BlockKind::CoordinateTable {
-            table: DetectedTable {
-                bbox,
-                rows: vec![vec!["A".to_string(), "B".to_string()]],
-                confidence: 0.9,
-                render: TableRender::Markdown,
-            },
+    Block { override_markdown: None, id: 0,
+    bbox,
+    text: String::new(),
+    kind: BlockKind::CoordinateTable {
+        table: DetectedTable {
+            bbox,
+            rows: vec![vec!["A".to_string(), "B".to_string()]],
+            confidence: 0.9,
+            render: TableRender::Markdown,
         },
-        font_size: 12.0,
-        font_name: "table".to_string(),
-        page_num: 0,
-        reading_order: 0,
-        bold: false,
-        italic: false,
-    }
+    },
+    font_size: 12.0,
+    font_name: "table".to_string(),
+    page_num: 0,
+    reading_order: 0,
+    bold: false,
+    italic: false, }
 }
 
 fn make_image_block(bbox: Bbox) -> Block {

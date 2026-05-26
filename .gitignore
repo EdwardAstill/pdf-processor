@@ -27,6 +27,10 @@ Cargo.lock
 *_extracted/
 *.pdf
 
+# Agent cache artifacts
+.pi-lens/
+.pied/
+
 # Warden local runtime state
 .warden/runtime/
 

@@ -252,6 +252,7 @@ impl Classifier {
                 let (bold, italic) = font_flags_for(&rb, metadata);
                 let kind = promote_monospace(kind, &rb);
                 Block {
+                    override_markdown: None,
                     id: rb.block_id,
                     bbox: rb.bbox,
                     text: rb.text.clone(),

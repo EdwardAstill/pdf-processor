@@ -178,6 +178,59 @@ pub struct Block {
     /// Dominant font is italic. Only meaningful when font metadata is
     /// available; defaults to `false`.
     pub italic: bool,
+    /// Optional override: if set, the renderer emits this markdown verbatim
+    /// for this block instead of serialising it from `kind` and `text`.
+    pub override_markdown: Option<String>,
+}
+
+impl Block {
+    /// Create a text block (paragraph, heading, list item, caption, code).
+    pub fn text(
+        id: usize,
+        bbox: Bbox,
+        text: String,
+        kind: BlockKind,
+        page_num: usize,
+        reading_order: usize,
+    ) -> Self {
+        Block {
+            id,
+            bbox,
+            text,
+            kind,
+            font_size: 0.0,
+            font_name: String::new(),
+            page_num,
+            reading_order,
+            bold: false,
+            italic: false,
+            override_markdown: None,
+        }
+    }
+
+    /// Create a non-text block (table, formula, image, figure).
+    pub fn special(
+        id: usize,
+        bbox: Bbox,
+        kind: BlockKind,
+        page_num: usize,
+        font_size: f32,
+        font_name: String,
+    ) -> Self {
+        Block {
+            id,
+            bbox,
+            text: String::new(),
+            kind,
+            font_size,
+            font_name,
+            page_num,
+            reading_order: 0,
+            bold: false,
+            italic: false,
+            override_markdown: None,
+        }
+    }
 }
 
 /// A raw page as extracted from mupdf (before layout analysis).

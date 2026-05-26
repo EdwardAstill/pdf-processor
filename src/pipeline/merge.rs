@@ -329,36 +329,32 @@ mod tests {
     use std::collections::BTreeSet;
 
     fn paragraph(id: usize, bbox: Bbox, reading_order: usize, text: &str) -> Block {
-        Block {
-            id,
-            bbox,
-            text: text.into(),
-            kind: BlockKind::Paragraph,
-            font_size: 10.0,
-            font_name: String::new(),
-            page_num: 0,
-            reading_order,
-            bold: false,
-            italic: false,
-        }
+        Block { override_markdown: None, id,
+        bbox,
+        text: text.into(),
+        kind: BlockKind::Paragraph,
+        font_size: 10.0,
+        font_name: String::new(),
+        page_num: 0,
+        reading_order,
+        bold: false,
+        italic: false, }
     }
 
     fn formula_block(id: usize, bbox: Bbox, latex: &str) -> Block {
-        Block {
-            id,
-            bbox,
-            text: String::new(),
-            kind: BlockKind::Formula {
-                latex: latex.into(),
-                display: true,
-            },
-            font_size: 0.0,
-            font_name: "formula".into(),
-            page_num: 0,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        }
+        Block { override_markdown: None, id,
+        bbox,
+        text: String::new(),
+        kind: BlockKind::Formula {
+            latex: latex.into(),
+            display: true,
+        },
+        font_size: 0.0,
+        font_name: "formula".into(),
+        page_num: 0,
+        reading_order: 0,
+        bold: false,
+        italic: false, }
     }
 
     fn table_candidate(bbox: Bbox, confidence: f32, source_ids: &[usize]) -> TableCandidate {
@@ -563,25 +559,23 @@ mod tests {
     fn merge_text_and_tables_places_table_before_lower_text() {
         let text_a = paragraph(1, Bbox::new(0.0, 100.0, 100.0, 120.0), 0, "a");
         let text_b = paragraph(2, Bbox::new(0.0, 400.0, 100.0, 420.0), 1, "b");
-        let table_block = Block {
-            id: 500,
-            bbox: Bbox::new(0.0, 200.0, 100.0, 300.0),
-            text: String::new(),
-            kind: BlockKind::CoordinateTable {
-                table: DetectedTable {
-                    bbox: Bbox::new(0.0, 200.0, 100.0, 300.0),
-                    rows: Vec::new(),
-                    confidence: 0.9,
-                    render: TableRender::Markdown,
-                },
+        let table_block = Block { override_markdown: None, id: 500,
+        bbox: Bbox::new(0.0, 200.0, 100.0, 300.0),
+        text: String::new(),
+        kind: BlockKind::CoordinateTable {
+            table: DetectedTable {
+                bbox: Bbox::new(0.0, 200.0, 100.0, 300.0),
+                rows: Vec::new(),
+                confidence: 0.9,
+                render: TableRender::Markdown,
             },
-            font_size: 0.0,
-            font_name: "table".into(),
-            page_num: 0,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        };
+        },
+        font_size: 0.0,
+        font_name: "table".into(),
+        page_num: 0,
+        reading_order: 0,
+        bold: false,
+        italic: false, };
 
         let merged = merge_text_and_tables(vec![text_a, text_b], vec![table_block]);
 
@@ -595,20 +589,18 @@ mod tests {
     fn merge_text_and_images_interleaves_by_y_only() {
         let text_a = paragraph(1, Bbox::new(0.0, 100.0, 100.0, 120.0), 0, "a");
         let text_b = paragraph(2, Bbox::new(0.0, 400.0, 100.0, 420.0), 1, "b");
-        let image = Block {
-            id: 700,
-            bbox: Bbox::new(0.0, 200.0, 100.0, 350.0),
-            text: String::new(),
-            kind: BlockKind::Image {
-                path: Some("img.png".into()),
-            },
-            font_size: 0.0,
-            font_name: "image".into(),
-            page_num: 0,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        };
+        let image = Block { override_markdown: None, id: 700,
+        bbox: Bbox::new(0.0, 200.0, 100.0, 350.0),
+        text: String::new(),
+        kind: BlockKind::Image {
+            path: Some("img.png".into()),
+        },
+        font_size: 0.0,
+        font_name: "image".into(),
+        page_num: 0,
+        reading_order: 0,
+        bold: false,
+        italic: false, };
 
         let merged = merge_text_and_images(vec![text_a, text_b], vec![image]);
 

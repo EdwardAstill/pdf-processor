@@ -193,6 +193,7 @@ mod tests {
                 reading_order: 0,
                 bold: false,
                 italic: false,
+                override_markdown: None,
             }],
             override_markdown: None,
         }

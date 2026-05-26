@@ -203,6 +203,7 @@ mod tests {
 
     fn block(kind: BlockKind, text: &str, bbox: Bbox) -> Block {
         Block {
+            override_markdown: None,
             id: 0,
             bbox,
             text: text.to_string(),
