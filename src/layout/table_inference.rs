@@ -56,8 +56,10 @@ pub(crate) fn detect_structured_region(
                 next_index: end,
             })
         }
-        BlockKind::Paragraph | BlockKind::ListItem { .. } => detect_implicit_numeric_table(blocks, start)
-            .or_else(|| detect_form_field_blocks(blocks, start)),
+        BlockKind::Paragraph | BlockKind::ListItem { .. } => {
+            detect_implicit_numeric_table(blocks, start)
+                .or_else(|| detect_form_field_blocks(blocks, start))
+        }
         _ => None,
     }
 }
@@ -320,8 +322,7 @@ fn derive_table_headers(
 fn numeric_value_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"\(?-?(?:\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})|\d+)\)?")
-            .unwrap()
+        Regex::new(r"\(?-?(?:\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})|\d+)\)?").unwrap()
     })
 }
 

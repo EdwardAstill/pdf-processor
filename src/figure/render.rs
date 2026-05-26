@@ -45,19 +45,22 @@ pub fn render_figure_snapshots(
             .with_context(|| format!("Failed to write figure snapshot {}", abs_path.display()))?;
 
         rendered.push(RenderedFigure {
-            block: Block { override_markdown: None, id: 2_000_000 + rendered.len(),
-            bbox: candidate.bbox,
-            text: String::new(),
-            kind: BlockKind::Figure {
-                path: Some(format!("images/{filename}")),
-                caption: candidate.caption_text.clone(),
+            block: Block {
+                override_markdown: None,
+                id: 2_000_000 + rendered.len(),
+                bbox: candidate.bbox,
+                text: String::new(),
+                kind: BlockKind::Figure {
+                    path: Some(format!("images/{filename}")),
+                    caption: candidate.caption_text.clone(),
+                },
+                font_size: 0.0,
+                font_name: "figure-snapshot".to_string(),
+                page_num,
+                reading_order: 0,
+                bold: false,
+                italic: false,
             },
-            font_size: 0.0,
-            font_name: "figure-snapshot".to_string(),
-            page_num,
-            reading_order: 0,
-            bold: false,
-            italic: false, },
         });
     }
 

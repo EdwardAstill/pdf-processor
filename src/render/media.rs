@@ -309,4 +309,3 @@ fn media_fingerprint(block: &Block, page: &Page) -> MediaFingerprint {
         edge_band,
     }
 }
-

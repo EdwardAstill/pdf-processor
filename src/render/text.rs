@@ -103,4 +103,3 @@ pub(crate) fn normalize_paragraph_text(text: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-

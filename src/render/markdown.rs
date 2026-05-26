@@ -37,11 +37,6 @@ pub struct MarkdownRenderer {
     pub image_output_dir: Option<PathBuf>,
 }
 
-
-
-
-
-
 impl MarkdownRenderer {
     pub fn new(extract_images: bool, image_output_dir: Option<PathBuf>) -> Self {
         Self {
@@ -112,7 +107,9 @@ impl MarkdownRenderer {
         let media_plan = build_page_media_plan(page, &blocks, render_ctx, scholarly_front_page);
 
         let mut i = 0;
-        if let Some(front_matter) = render_scholarly_first_page(&blocks, page, &media_plan, append_rendered_block) {
+        if let Some(front_matter) =
+            render_scholarly_first_page(&blocks, page, &media_plan, append_rendered_block)
+        {
             md.push_str(&front_matter.markdown);
             i = front_matter.next_index;
         }
@@ -252,19 +249,10 @@ impl MarkdownRenderer {
     }
 }
 
-
-
-
-
-
-
-
-
 fn render_heading(text: &str, level: u8) -> String {
     let prefix = "#".repeat(level.clamp(1, 6) as usize);
     format!("{} {}\n\n", prefix, normalize_heading_text(text.trim()))
 }
-
 
 fn render_list(blocks: &[&Block]) -> String {
     let mut result = String::new();
@@ -311,7 +299,6 @@ fn render_coordinate_table(table: &DetectedTable) -> String {
         }
     }
 }
-
 
 fn render_detected_markdown_table(rows: &[Vec<String>]) -> String {
     if rows.is_empty() {
@@ -428,7 +415,6 @@ fn render_key_value_grid(
     }
 }
 
-
 fn render_structured_region(
     markdown: &mut String,
     blocks: &[&Block],
@@ -444,7 +430,11 @@ fn render_structured_region(
             headers,
             rows,
             total,
-        } => markdown.push_str(&render_inferred_numeric_table(headers, rows, total.as_deref())),
+        } => markdown.push_str(&render_inferred_numeric_table(
+            headers,
+            rows,
+            total.as_deref(),
+        )),
         StructuredRegionKind::FormFields { fields } => {
             markdown.push_str(&render_inferred_form_fields(fields));
         }

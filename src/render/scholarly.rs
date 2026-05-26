@@ -427,8 +427,3 @@ fn table_cell_author_entries(blocks: &[&Block]) -> Vec<String> {
 
     cells.into_values().collect()
 }
-
-
-
-
-

@@ -478,29 +478,35 @@ mod tests {
     }
 
     fn caption(y0: f32, text: &str) -> Block {
-        Block { override_markdown: None, id: 1,
-        bbox: Bbox::new(90.0, y0, 510.0, y0 + 18.0),
-        text: text.to_string(),
-        kind: BlockKind::Caption,
-        font_size: 9.0,
-        font_name: "test".to_string(),
-        page_num: 0,
-        reading_order: 0,
-        bold: false,
-        italic: false, }
+        Block {
+            override_markdown: None,
+            id: 1,
+            bbox: Bbox::new(90.0, y0, 510.0, y0 + 18.0),
+            text: text.to_string(),
+            kind: BlockKind::Caption,
+            font_size: 9.0,
+            font_name: "test".to_string(),
+            page_num: 0,
+            reading_order: 0,
+            bold: false,
+            italic: false,
+        }
     }
 
     fn paragraph(id: usize, bbox: Bbox, text: &str) -> Block {
-        Block { override_markdown: None, id,
-        bbox,
-        text: text.to_string(),
-        kind: BlockKind::Paragraph,
-        font_size: 10.0,
-        font_name: "test".to_string(),
-        page_num: 0,
-        reading_order: id,
-        bold: false,
-        italic: false, }
+        Block {
+            override_markdown: None,
+            id,
+            bbox,
+            text: text.to_string(),
+            kind: BlockKind::Paragraph,
+            font_size: 10.0,
+            font_name: "test".to_string(),
+            page_num: 0,
+            reading_order: id,
+            bold: false,
+            italic: false,
+        }
     }
 
     #[test]
