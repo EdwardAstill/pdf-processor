@@ -343,20 +343,17 @@ fn table_candidates_to_blocks(page_num: usize, candidates: Vec<TableCandidate>) 
     candidates
         .into_iter()
         .enumerate()
-        .map(|(idx, candidate)| Block {
-            override_markdown: None,
-            id: 2_000_000 + idx,
-            bbox: candidate.table.bbox,
-            text: String::new(),
-            kind: BlockKind::CoordinateTable {
-                table: candidate.table,
-            },
-            font_size: 0.0,
-            font_name: "table".to_string(),
-            page_num,
-            reading_order: 0,
-            bold: false,
-            italic: false,
+        .map(|(idx, candidate)| {
+            Block::special(
+                2_000_000 + idx,
+                candidate.table.bbox,
+                BlockKind::CoordinateTable {
+                    table: candidate.table,
+                },
+                page_num,
+                0.0,
+                "table".to_string(),
+            )
         })
         .collect()
 }
@@ -442,22 +439,17 @@ fn formula_candidates_to_blocks(
         .enumerate()
         .filter_map(|(idx, candidate)| {
             if is_unresolved_formula_review(&candidate) {
-                return Some(Block {
-                    override_markdown: None,
-                    id: 3_100_000 + idx,
-                    bbox: candidate.bbox,
-                    text: String::new(),
-                    kind: BlockKind::FormulaReview {
+                return Some(Block::special(
+                    3_100_000 + idx,
+                    candidate.bbox,
+                    BlockKind::FormulaReview {
                         reason: candidate.reason,
                         crop_path: candidate.crop_path,
                     },
-                    font_size: 0.0,
-                    font_name: "formula-review".to_string(),
                     page_num,
-                    reading_order: 0,
-                    bold: false,
-                    italic: false,
-                });
+                    0.0,
+                    "formula-review".to_string(),
+                ));
             }
 
             if !render_math || !should_emit_formula_candidate(&candidate, mode) {
@@ -814,21 +806,16 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
         std::fs::write(&abs_path, &img_ref.bytes)
             .with_context(|| format!("Failed to write image {}", abs_path.display()))?;
         let rel_path = format!("images/{filename}");
-        blocks.push(Block {
-            override_markdown: None,
-            id: 1_000_000 + img_ref.image_index,
-            bbox: img_ref.bbox,
-            text: String::new(),
-            kind: BlockKind::Image {
+        blocks.push(Block::special(
+            1_000_000 + img_ref.image_index,
+            img_ref.bbox,
+            BlockKind::Image {
                 path: Some(rel_path),
             },
-            font_size: 0.0,
-            font_name: "image".to_string(),
-            page_num: img_ref.page_num,
-            reading_order: 0,
-            bold: false,
-            italic: false,
-        });
+            img_ref.page_num,
+            0.0,
+            "image".to_string(),
+        ));
     }
     Ok(blocks)
 }
