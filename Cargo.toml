@@ -34,14 +34,28 @@ time = { version = "0.3", features = ["parsing"] }
 # Glob pattern matching for batch input
 glob = "0.3"
 # Docling hybrid backend (optional runtime, `--hybrid docling`)
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "json",
+  "multipart",
+  "rustls-tls",
+] }
 # Second-opinion PDF reader for font names + struct-tree access.
 # Gated behind `pdfium-metadata` feature because it dynamically loads
 # `libpdfium.so`/`pdfium.dll` at runtime and is not needed for the
 # default build. See docs/TESTING.md for runtime verification notes.
-pdfium-render = { version = "0.9", default-features = false, features = ["thread_safe", "pdfium_latest"], optional = true }
+pdfium-render = { version = "0.9", default-features = false, features = [
+  "thread_safe",
+  "pdfium_latest",
+], optional = true }
 # Optional native formula OCR inference path. Built only with `--features onnx-ocr`.
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-rustls", "ndarray"], optional = true }
+ort = { version = "2.0.0-rc.12", default-features = false, features = [
+  "std",
+  "download-binaries",
+  "copy-dylibs",
+  "tls-rustls",
+  "ndarray",
+], optional = true }
 ndarray = { version = "0.17", optional = true }
 image = { version = "0.25", optional = true }
 
