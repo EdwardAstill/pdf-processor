@@ -1,154 +1,155 @@
-# Handoff — Formula Quality Follow-up
+# Handoff — RapidLaTeXOCR Benchmark & ONNX Path Polish
 
 **Date:** 2026-05-28
-**Branch:** `main` at `5800c48` before this handoff edit
-**Status:** Formula OCR plumbing exists. The remaining work is validation and
-quality improvement on real documents, especially DNV-style standards.
+**Branch:** `main` at `451c49f`
+**Status:** RapidLaTeXOCR installed, benchmarked, sidecar routing fixed, ONNX
+native path compiles and unit-tests pass but inference too slow on CPU without
+GPU execution provider.
 
 ---
 
-## Read this first
+## This session (2026-05-28)
 
-The old handoff overstated the remaining implementation work. Do **not** plan a
-new sidecar integration pass before checking the current code.
+Three commits:
 
-Implemented already:
-
-- CLI flag: `--formula-sidecar <SIDECAR>` in `src/cli.rs`
-- Command sidecar: `SubprocessSidecar` in `src/formula/ocr.rs`
-- Feature-gated ONNX sidecar: `OnnxFormulaSidecar` in `src/formula/ocr_onnx.rs`
-- Pipeline wiring: `build_formula_sidecar()`, crop rendering, and
-  `sidecar.recognize()` calls in `src/pipeline/mod.rs`
-- Tests: `tests/formula_ocr.rs` and feature-gated `tests/formula_onnx.rs`
-- Docling hybrid requests already send `do_formula_enrichment=true` in
-  `src/hybrid/client.rs`
-
-What remains is not "add OCR plumbing". It is: prove which OCR path produces
-usable LaTeX on the project corpus, then reduce detection errors that make the
-crops unreliable.
+| Commit | What |
+|---|---|
+| `d64d872` | Sidecar routing, benchmark, docs |
+| `b90c8de` | ONNX decode fixes (vocab, BPE merge, mask input) |
+| `451c49f` | ONNX decode loop optimization |
 
 ---
 
-## Current formula behaviour
+## RapidLaTeXOCR integration
 
-Local formula handling is an audit and recovery path, not a reliable default
-LaTeX extractor.
+### Installation
 
-- `--formulas auto` detects likely display equations and emits high-confidence
-  candidates as display math.
-- `--debug-formulas` writes JSON ledgers and crop PNGs under `debug/formulas/`.
-  It also enables a visual scan for isolated rendered equation bands that are
-  missing from the PDF text layer.
-- Visual-only formula regions are emitted as `formula-review` comments unless a
-  sidecar recovers LaTeX.
-- `--formula-sidecar <CMD>` or `cmd:<CMD>` sends high-confidence crops to a
-  local command. The command receives the crop PNG path and should print LaTeX
-  to stdout.
-- Builds with `--features onnx-ocr` also accept `--formula-sidecar
-  onnx:<model-dir>` where the model directory contains `encoder.onnx`,
-  `decoder.onnx`, and `vocab.txt`.
-- If no sidecar succeeds, `build_formula_latex()` falls back to PDF-extracted
-  source text plus small Unicode-to-LaTeX cleanup. That fallback is useful, but
-  it cannot reconstruct fractions, roots, matrices, or layout-heavy equations.
+```sh
+uv tool install rapid-latex-ocr --with requests
+```
 
-Command-name caveat: the research notes cite `rapid_latex_ocr`; current README
-and CLI examples cite `rapid-latex-ocr`. Verify the installed package's actual
-entry point before standardising docs or scripts.
+The executable is `rapid_latex_ocr` (underscore). The PyPI package is
+`rapid-latex-ocr` (hyphen).
 
-2026-05-28 update: entry point is `rapid_latex_ocr` (underscore). The PyPI
-package is `rapid-latex-ocr` (hyphen). Docs now use `rapid_latex_ocr` for
-command examples.
+### Sidecar routing fix
 
----
+`should_send_to_formula_sidecar` was changed from:
+- `confidence >= 70 && status == LocalCandidate` (56 candidates)
+- to `confidence >= 65` (any status, 75 candidates including visual-only)
 
-## Open problems
+This means higher-confidence NeedsReview candidates, including visual-page-
+render crops (conf 68), now reach the sidecar for LaTeX recovery.
 
-### 1. Formula OCR quality has not been measured on the target corpus
+### Quality benchmark (math-number-theory.pdf)
 
-The sidecar path is implemented, but it has not been benchmarked on real formula
-crops from the documents that matter. The next session should compare at least:
+| Candidate | Geometric LaTeX | RapidLaTeXOCR |
+|---|---|---|
+| Conv equation | `\label {eq:conv ...` missing braces | Structured `\begin{array}`, correct subscripts ✅ |
+| Matmul equation | `\labe l eq:matmul }...` garbled | `\hat{Y}=\hat{X}\hat{W}` correct ✅ |
+| RUNTIME equation | `\labe l ^{{eq:r ...` garbled | Recognisable, minor errors |
+| CEIL_smooth | `^{m} ^{o} h c eilin...` broken | Nested `\sum`, partial recovery |
+| Lambda params | Duplicates | Clean `\underline{\lambda}` ✅ |
 
-- command sidecar with RapidLaTeXOCR, after verifying the command name
-- native ONNX sidecar if model files are available
-- Docling hybrid output with formula enrichment already enabled
+**Conclusion**: RapidLaTeXOCR produces significantly better LaTeX than local
+geometric recovery on real formulas. Geometric is a fast fallback;
+RapidLaTeXOCR should be preferred when quality matters.
 
-Record both accuracy and runtime. Do not rely on README claims or generic OCR
-benchmarks as proof.
+### Per-crop timing (Python onnxruntime 1.26.0, CPU)
 
-### 2. DNV-style standards still produce noisy formula candidates
-
-See `next.md` for the concrete DNV audit. Main failures:
-
-- alpha-factor and symbol-heavy tables are often flagged as formulas
-- reference sections can still produce math-like false positives
-- some important displayed equations are visible in page renders but absent from
-  the text layer
-- local text fallback does not reconstruct true LaTeX structure
-
-The current crop generator is useful for review, but not yet enough for reliable
-standards conversion.
-
-### 3. Evaluation needs a repeatable fixture loop
-
-Before tuning heuristics, create a small ignored local corpus or fixture set
-with representative formula cases:
-
-- clean text-backed equations
-- visual-only equations
-- formula-like tables that should remain tables
-- reference pages that should not emit formula candidates
-- DNV pages from `next.md` such as pages 69-71, 130, 389, 597, 670, and 675
-
-Each candidate OCR backend should be run on the same crops and outputs should be
-kept under `target/` or another ignored evaluation directory.
+- 1 token: 26ms
+- 21-token formula (blank image): 398ms total (19ms/token avg)
+- Estimated 56 crops × 20 tokens: ~22s total
 
 ---
 
-## Suggested next session
+## ONNX native path
 
-1. Generate fresh formula debug crops for a small target corpus.
+### What works
 
-   ```sh
-   pdfp convert <pdf> -o target/formula-eval/<name> --debug-formulas --conservative
-   ```
+- `cargo build --features onnx-ocr` compiles and produces `pdfp`
+- `--formula-sidecar onnx:<model-dir>` parses correctly
+- 11 ONNX unit tests pass: vocab loading, BPE merge, preprocessing shape,
+  module structure, model path validation
+- Vocal.txt generated from installed `tokenizer.json` (1175 tokens)
+- BPE backslash merge fixed: `\ mathrm` → `\mathrm`
+- Decoder mask input added (3rd input `mask: tensor(bool)`)
+- Context tensor pre-allocated once per crop (was cloning 517KB per step)
 
-2. Verify the RapidLaTeXOCR executable name from the installed package.
+### What doesn't work
 
-   ```sh
-   command -v rapid_latex_ocr || true
-   command -v rapid-latex-ocr || true
-   rapid_latex_ocr --help || rapid-latex-ocr --help
-   ```
+- Full inference is too slow on this CPU when using the `ort` crate (ONNX
+  Runtime 1.24.2). The `ort` crate bundles a custom build from
+  `cdn.pyke.io` which appears slower than Python's onnxruntime 1.26.0 on
+  x86_64 Linux.
+- Each crop takes 10+ seconds in Rust vs ~400ms in Python.
+- The pipeline times out before completing a full document.
 
-3. Run the implemented sidecar path on the same PDFs.
+### Known gap
 
-   ```sh
-   pdfp convert <pdf> -o target/formula-eval/<name>-sidecar \
-     --debug-formulas --formula-sidecar <verified-command>
-   ```
+Compare the ort crate's ONNX Runtime build with the pip onnxruntime 1.26.0.
+Likely causes:
+- Missing CPU feature detection (AVX, SSE)
+- Missing OpenMP threading
+- ort 2.0.0-rc.12 uses ORT 1.24.2 vs Python's 1.26.0
+- Model may need KV-cache support for efficient autoregressive decode
 
-4. Compare debug JSON, Markdown output, and crop-level LaTeX manually for the
-   representative pages. Record findings in a new evaluation note, not in this
-   handoff.
+### Recommended next work for ONNX
 
-5. Only after that, choose the next implementation change. Likely candidates:
-   table/formula suppression improvements, reference-section suppression, or a
-   small benchmark script for sidecar comparisons.
+1. Investigate why ort crate is slower — try `ORT_CACHE_DIR` / custom ORT
+   library path with a pip-installed onnxruntime .so
+2. Or: wait for ort >= 2.0.0 stable with newer ORT version
+3. Or: use the subprocess sidecar as the production path (proven, acceptable
+   speed for batch processing)
+
+---
+
+## Table output
+
+Checked: Markdown pipe tables are already produced in `TableMode::Auto` when
+`row_consistency >= 0.80` and `rows >= 3`. Layout fallback for complex
+tables is correct. The real weakness is table *detection recall* on
+borderless DNV/standards tables, not formatting.
+
+---
+
+## Files changed this session
+
+| File | Change |
+|---|---|
+| `README.md` | Command name: `rapid_latex_ocr` (not `rapid-latex-ocr`) |
+| `docs/CLI.md` | Same command name fix |
+| `src/formula/geometric.rs` | Clippy fix (redundant closure) |
+| `src/pipeline/mod.rs` | Sidecar routing: remove `latex.is_none()` gate; lower conf threshold to 65 |
+| `src/formula/ocr_onnx.rs` | Vocab from `tokenizer.json`, BPE merge, mask input, context reuse |
+| `docs/handoff.md` | Updated handoff |
+| `wiki/structures/equations.md` | Benchmark results, production timing estimates |
 
 ---
 
 ## Files to know
 
-- `next.md` — current DNV formula extraction audit and failure examples
-- `src/pipeline/mod.rs` — formula candidate flow, crop rendering, sidecar calls,
-  and local fallback LaTeX construction
-- `src/formula/detect.rs` — text-backed formula candidate detection
-- `src/formula/visual.rs` — visual-only formula candidate detection
+- `wiki/structures/equations.md` — updated with benchmarks
+- `wiki/algorithms/formula-detection.md` — detection algorithms
+- `wiki/topics/technical-standards-documents.md` — DNV failure modes
 - `src/formula/ocr.rs` — sidecar trait and subprocess implementation
-- `src/formula/ocr_onnx.rs` — feature-gated native ONNX implementation
-- `src/hybrid/client.rs` — Docling request options, including formula enrichment
-- `tests/formula_ocr.rs` — command sidecar regression coverage
-- `tests/formula_onnx.rs` — feature-gated ONNX/parser coverage
-- `.pied/research/formula-latex-ocr/FINDINGS.md` — background research only;
-  treat implementation recommendations there as stale unless source confirms
-  them
+- `src/formula/ocr_onnx.rs` — native ONNX implementation
+- `src/pipeline/mod.rs` — candidate flow and sidecar calls
+- `tests/formula_ocr.rs` — subprocess sidecar tests
+- `tests/formula_onnx.rs` — ONNX unit tests
+
+---
+
+## Next session (suggested)
+
+1. **Install** `rapid_latex_ocr` and run a full evaluation on attention.pdf
+   and DNV standards pages:
+   ```sh
+   pdfp convert paper.pdf --no-images --debug-formulas \
+     --formula-sidecar rapid_latex_ocr -o target/eval/
+   ```
+2. **Compare** geometric vs sidecar LaTeX in `debug/formulas/index.json`.
+3. **Measure** false positive suppression — does lowering the sidecar threshold
+   help or hurt on real documents?
+4. **Fix** ONNX native path by testing an updated ort crate or custom ORT lib.
+5. **Evaluate** whether to invest in ONNX performance or stay with subprocess
+   path.
