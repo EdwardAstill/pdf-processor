@@ -2,9 +2,12 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
+use lopdf::{Document as LopdfDocument, Object};
 use mupdf::pdf::PdfDocument;
 
-use crate::cli::{MergeArgs, PageSelectionArgs, PagesCommand, PagesSubcommand, SplitArgs};
+use crate::cli::{
+    MergeArgs, PageSelectionArgs, PagesCommand, PagesSubcommand, RotateArgs, SplitArgs,
+};
 use crate::processor::page_range::parse_page_selection;
 
 pub fn run(args: &PagesCommand) -> anyhow::Result<()> {
@@ -14,6 +17,7 @@ pub fn run(args: &PagesCommand) -> anyhow::Result<()> {
         PagesSubcommand::Split(args) => split(args),
         PagesSubcommand::Reorder(args) => reorder(args),
         PagesSubcommand::Merge(args) => merge(args),
+        PagesSubcommand::Rotate(args) => rotate(args),
     }
 }
 
@@ -94,6 +98,43 @@ fn merge(args: &MergeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn rotate(args: &RotateArgs) -> anyhow::Result<()> {
+    ensure_output_is_not_input(&args.input, &args.output)?;
+    if args.degrees % 90 != 0 {
+        bail!("--degrees must be a multiple of 90");
+    }
+
+    let page_count = page_count(&args.input)?;
+    let selected: BTreeSet<usize> = parse_page_selection(&args.pages, page_count)?
+        .into_iter()
+        .collect();
+    let normalized = ((args.degrees % 360) + 360) % 360;
+    let mut doc = LopdfDocument::load(&args.input)
+        .with_context(|| format!("failed to open {}", args.input.display()))?;
+    let pages = doc.get_pages();
+
+    for page_index in selected {
+        let page_num = (page_index + 1) as u32;
+        let page_id = pages
+            .get(&page_num)
+            .copied()
+            .with_context(|| format!("page {page_num} not found in {}", args.input.display()))?;
+        let page = doc
+            .get_object_mut(page_id)
+            .with_context(|| format!("failed to access page {page_num}"))?
+            .as_dict_mut()?;
+        if normalized == 0 {
+            page.remove(b"Rotate");
+        } else {
+            page.set("Rotate", Object::Integer(normalized.into()));
+        }
+    }
+
+    save_lopdf(&mut doc, &args.output)?;
+    eprintln!("wrote {}", args.output.display());
+    Ok(())
+}
+
 fn page_count(path: &Path) -> anyhow::Result<usize> {
     let path_str = path.to_string_lossy();
     let doc = PdfDocument::open(path_str.as_ref())
@@ -131,6 +172,19 @@ fn write_selected_pages(input: &Path, output: &Path, keep_pages: &[usize]) -> an
     }
     let output_str = output.to_string_lossy();
     pdf.save(output_str.as_ref())
+        .with_context(|| format!("failed to save {}", output.display()))?;
+    Ok(())
+}
+
+fn save_lopdf(doc: &mut LopdfDocument, output: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    doc.save(output)
         .with_context(|| format!("failed to save {}", output.display()))?;
     Ok(())
 }

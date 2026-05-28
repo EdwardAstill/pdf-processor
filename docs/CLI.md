@@ -15,8 +15,10 @@ pdfp search --help
 pdfp eval --help
 pdfp pages --help
 pdfp pages extract --help
+pdfp pages rotate --help
 pdfp impose booklet --help
 pdfp page resize --help
+pdfp page crop --help
 ```
 
 ## Install
@@ -50,9 +52,9 @@ pdfp doctor
 | Read/write document metadata | `pdfp metadata ...` | Human summary, JSON, or new PDF |
 | Search embedded text | `pdfp search input.pdf "needle"` | Matching pages or JSON, optionally OCR-assisted |
 | Evaluate extraction quality | `pdfp eval fixtures/` | Formula, heading, table, and image metrics |
-| Extract/delete/split/reorder/merge pages | `pdfp pages ...` | New PDF files |
+| Extract/delete/split/reorder/merge/rotate pages | `pdfp pages ...` | New PDF files |
 | Create 2-up or booklet layouts | `pdfp impose ...` | New PDF files |
-| Resize pages | `pdfp page resize ...` | New PDF file |
+| Resize or crop pages | `pdfp page ...` | New PDF file |
 
 The old shorthand still works:
 
@@ -421,9 +423,15 @@ Merge PDFs:
 pdfp pages merge one.pdf two.pdf three.pdf -o merged.pdf
 ```
 
+Set page rotation on selected pages:
+
+```sh
+pdfp pages rotate input.pdf --pages 1,3 --degrees 90 -o rotated.pdf
+```
+
 These commands write new files. They do not edit the input PDF in place.
 
-## Imposition and Resizing
+## Imposition, Resizing, and Cropping
 
 Put two source pages onto each output page:
 
@@ -443,12 +451,20 @@ Resize pages to A4:
 pdfp page resize input.pdf --paper a4 --fit contain -o resized.pdf
 ```
 
-Supported resize options:
+Set CropBox on selected pages:
+
+```sh
+pdfp page crop input.pdf --pages all --box 0 0 500 700 -o cropped.pdf
+```
+
+Supported resize/crop options:
 
 | Flag | Values |
 | --- | --- |
 | `--paper` | `a4`, `letter` |
 | `--fit` | `contain`, `cover`, `stretch` |
+| `--pages` | `1`, `1-3`, `odd`, `even`, `all` for crop |
+| `--box` | `x0 y0 x1 y1` in PDF points |
 
 ## Safety and Limits
 

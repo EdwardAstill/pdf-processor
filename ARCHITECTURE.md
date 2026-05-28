@@ -133,7 +133,7 @@ mupdf 0.6 exposes a rich `pdf` sub-module (`PdfDocument`, `PdfPage`, `PdfAnnotat
 - Page rotation, crop box, media box
 - PDF save with compression, linearization, encryption, garbage collection
 
-These are documented in `plans/stages/plan.md` Stage 2 and represent ~470 lines of integration code to unlock 11 new features.
+Page rotation and crop-box editing are implemented; outlines, annotations, compression, and encryption remain future PDF-operations polish.
 
 ### Coordinate system
 
@@ -173,11 +173,10 @@ tests/
 
 ## Future directions
 
-See `plans/stages/plan.md` for the staged improvement plan:
-- Stage 1: Consolidation & refactoring (current)
-- Stage 2: Quick wins using existing mupdf APIs
-- Stage 3: Medium features (forms, PDF/A, CJK)
-- Stage 4: Advanced (Markdown→PDF, signatures, OmniDocBench)
+- formula and standards-quality closeout
+- evaluation and benchmark polish
+- remaining PDF operations using existing MuPDF/lopdf APIs
+- forms, accessibility, international text, and hybrid routing polish
 
 ## References
 

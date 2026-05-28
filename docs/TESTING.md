@@ -202,6 +202,30 @@ bash scripts/quality-diff.sh \
   target/quality-top/report.json
 ```
 
+For schema-light comparisons across quality, OmniDocBench, and table benchmark JSON outputs, use:
+
+```bash
+python tools/eval_benchmarks/compare.py old-results.json new-results.json
+```
+
+Run optional external benchmark helpers when the datasets are available locally:
+
+```bash
+python tools/eval_benchmarks/run_omni_doc_bench.py \
+  --pdfp target/debug/pdfp \
+  --omnidocbench /path/to/OmniDocBench \
+  --output target/omnidocbench-results.json \
+  --limit 10
+
+python tools/eval_benchmarks/run_table_bench.py \
+  --pdfp target/debug/pdfp \
+  --benchmark rd-tablebench \
+  --rd-tablebench-path /path/to/rd-tablebench \
+  --output target/rd-tablebench-results.json
+```
+
+The benchmark helpers currently use only the Python standard library. `tools/eval_benchmarks/requirements.txt` is intentionally empty except for comments until a script imports a dataset-specific package directly.
+
 Regenerate the stored baseline only after intentionally changing extraction behavior. Before regenerating, inspect the changed Markdown under the relevant `target/quality-*` case output directories.
 
 For the repeatable research/change/test/observe workflow, see `docs/QUALITY_LOOP.md`.

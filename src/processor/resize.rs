@@ -1,13 +1,18 @@
+use std::collections::BTreeSet;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
+use lopdf::{Document as LopdfDocument, Object};
 use mupdf::{Document, DocumentWriter, Matrix, Rect};
 
-use crate::cli::{PageCommand, PageSubcommand, ResizeArgs};
+use crate::cli::{CropArgs, PageCommand, PageSubcommand, ResizeArgs};
+use crate::processor::page_range::parse_page_selection;
 
 pub fn run(args: &PageCommand) -> anyhow::Result<()> {
     match &args.command {
         PageSubcommand::Resize(args) => resize(args),
+        PageSubcommand::Crop(args) => crop(args),
     }
 }
 
@@ -61,6 +66,85 @@ fn resize(args: &ResizeArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn crop(args: &CropArgs) -> anyhow::Result<()> {
+    ensure_output_is_not_input(&args.input, &args.output)?;
+    let [x0, y0, x1, y1]: [f32; 4] = args
+        .crop_box
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("--box requires exactly four values: x0 y0 x1 y1"))?;
+    if x1 <= x0 || y1 <= y0 {
+        bail!("--box must satisfy x1 > x0 and y1 > y0");
+    }
+
+    let page_count = page_count(&args.input)?;
+    let selected: BTreeSet<usize> = parse_page_selection(&args.pages, page_count)?
+        .into_iter()
+        .collect();
+    let mut doc = LopdfDocument::load(&args.input)
+        .with_context(|| format!("failed to open {}", args.input.display()))?;
+    let pages = doc.get_pages();
+    let crop_box = vec![x0.into(), y0.into(), x1.into(), y1.into()];
+
+    for page_index in selected {
+        let page_num = (page_index + 1) as u32;
+        let page_id = pages
+            .get(&page_num)
+            .copied()
+            .with_context(|| format!("page {page_num} not found in {}", args.input.display()))?;
+        let page = doc
+            .get_object_mut(page_id)
+            .with_context(|| format!("failed to access page {page_num}"))?
+            .as_dict_mut()?;
+        page.set("CropBox", Object::Array(crop_box.clone()));
+    }
+
+    save_lopdf(&mut doc, &args.output)?;
+    eprintln!("wrote {}", args.output.display());
+    Ok(())
+}
+
+fn page_count(path: &Path) -> anyhow::Result<usize> {
+    let doc =
+        LopdfDocument::load(path).with_context(|| format!("failed to open {}", path.display()))?;
+    Ok(doc.get_pages().len())
+}
+
+fn save_lopdf(doc: &mut LopdfDocument, output: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    doc.save(output)
+        .with_context(|| format!("failed to save {}", output.display()))?;
+    Ok(())
+}
+
+fn ensure_output_is_not_input(input: &Path, output: &Path) -> anyhow::Result<()> {
+    let input_abs = absolutize(input);
+    let output_abs = absolutize(output);
+    if input_abs == output_abs {
+        bail!(
+            "refusing to overwrite input PDF {}; choose a different -o path",
+            input.display()
+        );
+    }
+    Ok(())
+}
+
+fn absolutize(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    }
 }
 
 fn paper_size(paper: &str) -> anyhow::Result<(f32, f32)> {

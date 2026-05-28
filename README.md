@@ -37,10 +37,11 @@ The active codepath is:
 - Optional hybrid Docling assist for hard pages
 - Quality evaluation against fixture JSON files
 
-**Planned (see [plans/stages/plan.md](plans/stages/plan.md)):**
-- Stage 2: outlines/TOC, password unlock, rotate, annotations, compress, watermarks
-- Stage 3: form filling, PDF/A validation, CJK/RTL, internal links
-- Stage 4: Markdown→PDF round-trip, digital signatures, PDF repair
+**Remaining polish areas:**
+- Formula and standards-quality closeout
+- Evaluation and benchmark polish
+- PDF operations polish: outlines, annotations, encryption, optimize
+- Forms, accessibility, international text, and hybrid routing polish
 
 **Out of active scope at the repo root:**
 - DOCX / EPUB / PPTX / HTML conversion (removed in v0.4.0)
@@ -77,9 +78,9 @@ pdfp inspect <INPUT> [--json] [--ocr auto|force]
 pdfp metadata <show|set|clear> ...
 pdfp search <INPUT> <TEXT> [--json] [--ocr auto|force]
 pdfp eval <FIXTURES_DIR>
-pdfp pages <extract|delete|split|reorder|merge> ...
+pdfp pages <extract|delete|split|reorder|merge|rotate> ...
 pdfp impose <2up|booklet> ...
-pdfp page resize <INPUT> -o <OUTPUT>
+pdfp page <resize|crop> <INPUT> -o <OUTPUT>
 ```
 
 Bare `pdfp <INPUT>` remains a backwards-compatible alias for `pdfp convert <INPUT>`.
@@ -94,8 +95,10 @@ pdfp ocr --help
 pdfp eval --help
 pdfp metadata set --help
 pdfp pages extract --help
+pdfp pages rotate --help
 pdfp impose booklet --help
 pdfp page resize --help
+pdfp page crop --help
 ```
 
 See the full CLI guide at [`docs/CLI.md`](docs/CLI.md). For an honest
@@ -305,6 +308,9 @@ pdfp pages reorder input.pdf --pages 1,3,2,4-8 -o reordered.pdf
 
 # Merge PDFs in order
 pdfp pages merge one.pdf two.pdf three.pdf -o merged.pdf
+
+# Set page rotation on selected pages
+pdfp pages rotate input.pdf --pages 1,3 --degrees 90 -o rotated.pdf
 ```
 
 Page selections are 1-indexed and support `1`, `1-3`, comma lists, `odd`, `even`, and `all`. These commands refuse to overwrite the input path; there is no in-place editing mode yet.
@@ -320,6 +326,9 @@ pdfp impose booklet input.pdf -o booklet.pdf
 
 # Resize pages to a target paper size
 pdfp page resize input.pdf --paper a4 --fit contain -o resized.pdf
+
+# Set CropBox on selected pages (x0 y0 x1 y1, PDF points)
+pdfp page crop input.pdf --pages all --box 0 0 500 700 -o cropped.pdf
 ```
 
 ## Output
@@ -370,5 +379,3 @@ See [`docs/TESTING.md`](docs/TESTING.md) for the full matrix.
 For deeper implementation notes on PDF structure, text extraction, layout recovery, tables, OCR, Markdown rendering, and evaluation, see the [`wiki/`](wiki/README.md).
 
 For architecture decisions and module map, see [ARCHITECTURE.md](ARCHITECTURE.md).
-
-For the staged improvement roadmap, see [plans/stages/plan.md](plans/stages/plan.md).

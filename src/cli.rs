@@ -393,6 +393,8 @@ pub enum PagesSubcommand {
     Reorder(PageSelectionArgs),
     /// Merge PDFs
     Merge(MergeArgs),
+    /// Set page rotation on selected pages
+    Rotate(RotateArgs),
 }
 
 #[derive(Args, Debug)]
@@ -414,6 +416,24 @@ pub struct PageSelectionArgs {
     /// 1-indexed page range, e.g. `1-3,9`, `odd`, `even`, or `all`
     #[arg(long)]
     pub pages: String,
+
+    /// Output PDF
+    #[arg(short, long)]
+    pub output: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct RotateArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// 1-indexed page range, e.g. `1-3,9`, `odd`, `even`, or `all`
+    #[arg(long, default_value = "all")]
+    pub pages: String,
+
+    /// Absolute page rotation in degrees. Must be a multiple of 90.
+    #[arg(long)]
+    pub degrees: i32,
 
     /// Output PDF
     #[arg(short, long)]
@@ -469,6 +489,8 @@ pub struct PageCommand {
 pub enum PageSubcommand {
     /// Resize pages to a target paper size
     Resize(ResizeArgs),
+    /// Set CropBox on selected pages
+    Crop(CropArgs),
 }
 
 #[derive(Args, Debug)]
@@ -487,6 +509,24 @@ pub struct ResizeArgs {
     /// Fit mode: contain, cover, or stretch
     #[arg(long, default_value = "contain")]
     pub fit: String,
+}
+
+#[derive(Args, Debug)]
+pub struct CropArgs {
+    /// Input PDF
+    pub input: PathBuf,
+
+    /// Output PDF
+    #[arg(short, long)]
+    pub output: PathBuf,
+
+    /// 1-indexed page range, e.g. `1-3,9`, `odd`, `even`, or `all`
+    #[arg(long, default_value = "all")]
+    pub pages: String,
+
+    /// Crop box as x0 y0 x1 y1 in PDF points
+    #[arg(long = "box", num_args = 4, value_names = ["X0", "Y0", "X1", "Y1"])]
+    pub crop_box: Vec<f32>,
 }
 
 impl Cli {

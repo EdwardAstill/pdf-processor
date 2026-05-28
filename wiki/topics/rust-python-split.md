@@ -81,7 +81,7 @@ The `onnx-ocr` feature gate runs ONNX formula OCR models directly in Rust via th
 
 **ONNX is the preferred formula OCR path.** `onnx-ocr` feature → `OnnxFormulaSidecar` via `ort` crate. The formula sidecar architecture (trait with command and ONNX implementations) already prefers ONNX when available.
 
-See `plans/stages/rust-python-split-optimisation.md` for the implementation plan.
+The old split-specific plan has been removed. Live follow-up work belongs in the current handoff rather than a separate plan file.
 
 ---
 

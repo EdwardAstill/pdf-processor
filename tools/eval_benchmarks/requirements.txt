@@ -1,1 +1,2 @@
-pypdf>=5.0
+# The current benchmark helpers use only the Python standard library.
+# Add dataset-specific packages here only when a script imports them directly.

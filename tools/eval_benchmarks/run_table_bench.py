@@ -9,7 +9,10 @@ Usage:
 
 Supported benchmarks:
     - rd-tablebench: Reducto's RD-TableBench
-    - pubtables-v2: PubTables-v2 full-document table extraction
+
+This helper records reproducible pdfp table counts and shapes for a local
+RD-TableBench checkout. It does not download datasets or claim full GriTS/TEDS
+scoring.
 """
 
 import argparse
@@ -43,7 +46,7 @@ def run_pdfp(pdfp_bin: str, pdf_path: Path, output_dir: Path) -> Path:
 
 def extract_tables_from_markdown(md_path: Path) -> list[list[list[str]]]:
     """Extract GFM tables from pdfp markdown output.
-    
+
     Returns list of tables, each table is list of rows, each row is list of cells.
     """
     tables = []
@@ -72,51 +75,8 @@ def extract_tables_from_markdown(md_path: Path) -> list[list[list[str]]]:
     return tables
 
 
-def compute_grits(pred_tables: list, gt_tables: list) -> dict:
-    """Compute approximate GriTS score (structure only, no content comparison).
-    
-    Full GriTS requires HTML structure comparison. This is a simplified
-    structural overlap score: what fraction of the ground-truth grid
-    dimensions are recovered.
-    """
-    if not gt_tables:
-        return {"grits_struct": 1.0, "tables_matched": 0, "tables_total": 0}
-
-    scores = []
-    for gt in gt_tables:
-        gt_rows = len(gt)
-        gt_cols = max((len(row) for row in gt), default=0)
-        if gt_rows == 0 or gt_cols == 0:
-            scores.append(1.0)  # Empty table trivially matches
-            continue
-
-        # Find best-matching predicted table by row/col similarity
-        best_score = 0.0
-        for pred in pred_tables:
-            pred_rows = len(pred)
-            pred_cols = max((len(row) for row in pred), default=0)
-            if pred_rows == 0 or pred_cols == 0:
-                continue
-            row_recall = min(gt_rows, pred_rows) / max(gt_rows, pred_rows, 1)
-            col_recall = min(gt_cols, pred_cols) / max(gt_cols, pred_cols, 1)
-            score = (row_recall + col_recall) / 2.0
-            best_score = max(best_score, score)
-        scores.append(best_score)
-
-    avg_score = sum(scores) / len(scores) if scores else 0.0
-    return {
-        "grits_struct_approx": round(avg_score, 4),
-        "tables_matched": len(scores),
-        "tables_total": len(gt_tables),
-    }
-
-
 def run_rd_tablebench(pdfp_bin: str, output_path: Path) -> dict:
-    """Run pdfp against RD-TableBench PDFs.
-    
-    Note: RD-TableBench requires downloading the dataset separately.
-    This function demonstrates the integration pattern.
-    """
+    """Return a skipped result when no RD-TableBench path is provided."""
     results = {
         "benchmark": "rd-tablebench",
         "status": "not_downloaded",
@@ -134,12 +94,11 @@ def main():
     parser.add_argument("--pdfp", default="pdfp", help="Path to pdfp binary")
     parser.add_argument(
         "--benchmark",
-        choices=["rd-tablebench", "pubtables-v2"],
+        choices=["rd-tablebench"],
         default="rd-tablebench",
     )
     parser.add_argument("--output", default="table_bench_results.json", help="Output JSON path")
     parser.add_argument("--rd-tablebench-path", help="Path to RD-TableBench dataset")
-    parser.add_argument("--pubtables-path", help="Path to PubTables-v2 dataset")
     args = parser.parse_args()
 
     results = {}
@@ -181,13 +140,6 @@ def main():
                     "files_processed": len(pdfs),
                     "results": table_results,
                 }
-
-    elif args.benchmark == "pubtables-v2":
-        results = {
-            "benchmark": "pubtables-v2",
-            "status": "not_implemented",
-            "message": "PubTables-v2 integration not yet implemented.",
-        }
 
     with open(args.output, "w") as f:
         json.dump(results, f, indent=2)

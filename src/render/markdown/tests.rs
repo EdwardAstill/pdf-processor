@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::document::types::{Bbox, Block, BlockKind, Document, DocumentMetadata, Page};
 use crate::layout::table_inference::{

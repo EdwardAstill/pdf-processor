@@ -27,11 +27,13 @@ fn every_command_path_prints_help() {
         &["pages", "split"],
         &["pages", "reorder"],
         &["pages", "merge"],
+        &["pages", "rotate"],
         &["impose"],
         &["impose", "2up"],
         &["impose", "booklet"],
         &["page"],
         &["page", "resize"],
+        &["page", "crop"],
     ];
 
     for command in commands {
