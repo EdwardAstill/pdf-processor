@@ -116,11 +116,15 @@ impl OnnxFormulaSidecar {
             .expect("ONNX decoder mutex poisoned");
 
         for _ in 0..MAX_DECODE_STEPS {
-            let ids_array = Array2::from_shape_vec((1, token_ids.len()), token_ids.clone())
+            let seq_len = token_ids.len();
+            let ids_array = Array2::from_shape_vec((1, seq_len), token_ids.clone())
                 .context("failed to build decoder token tensor")?;
             let ids = Tensor::from_array(ids_array)?;
+            // Causal mask: lower-triangular false (no masking needed for greedy decoding)
+            let mask_array = Array2::<bool>::from_elem((seq_len, seq_len), false);
+            let mask = Tensor::from_array(mask_array)?;
             let memory_tensor = Tensor::from_array(memory.clone())?;
-            let outputs = decoder.run(ort::inputs![ids, memory_tensor])?;
+            let outputs = decoder.run(ort::inputs![ids, mask, memory_tensor])?;
             let logits = outputs[0]
                 .try_extract_array::<f32>()
                 .context("decoder output was not a float tensor")?;
@@ -198,6 +202,10 @@ pub fn load_vocab(path: &Path) -> anyhow::Result<Vec<String>> {
 }
 
 /// Decode token IDs to a LaTeX string, skipping BOS/EOS/PAD and stopping at EOS.
+///
+/// BPE tokenizers split LaTeX commands into backslash + name tokens (e.g.
+/// `\` + `mathrm`). This function merges `\ ` + letter sequences so that
+/// `\ mathrm` becomes `\mathrm`.
 pub fn decode_ids(ids: &[i64], vocab: &[String]) -> String {
     let mut tokens = Vec::new();
     for &id in ids {
@@ -211,7 +219,30 @@ pub fn decode_ids(ids: &[i64], vocab: &[String]) -> String {
             tokens.push(token.as_str());
         }
     }
-    tokens.join(" ")
+    merge_bpe_backslash(tokens.join(" "))
+}
+
+/// Merge BPE `\ ` + letter pairs so that `\ mathrm` → `\mathrm`.
+fn merge_bpe_backslash(raw: String) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let chars: Vec<char> = raw.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        if chars[i] == '\\'
+            && i + 1 < n
+            && chars[i + 1] == ' '
+            && i + 2 < n
+            && chars[i + 2].is_ascii_alphabetic()
+        {
+            out.push('\\');
+            i += 2; // skip the space
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 fn argmax_last_step(logits: &ndarray::ArrayViewD<'_, f32>) -> anyhow::Result<i64> {
@@ -237,4 +268,50 @@ fn argmax_last_step(logits: &ndarray::ArrayViewD<'_, f32>) -> anyhow::Result<i64
         .map(|(idx, _)| idx as i64)
         .context("decoder logits are empty")?;
     Ok(next_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_bpe_preserves_plain_text() {
+        assert_eq!(merge_bpe_backslash("hello world".into()), "hello world");
+    }
+
+    #[test]
+    fn merge_bpe_fixes_backslash_command() {
+        assert_eq!(
+            merge_bpe_backslash("\\ mathrm {abc}".into()),
+            "\\mathrm {abc}"
+        );
+    }
+
+    #[test]
+    fn merge_bpe_fixes_multiple_commands() {
+        assert_eq!(
+            merge_bpe_backslash("\\ frac {a}{b} + \\ sqrt {x}".into()),
+            "\\frac {a}{b} + \\sqrt {x}"
+        );
+    }
+
+    #[test]
+    fn merge_bpe_leaves_standalone_backslash_space() {
+        assert_eq!(merge_bpe_backslash("x \\ 1".into()), "x \\ 1");
+    }
+
+    #[test]
+    fn merge_bpe_empty_string() {
+        assert_eq!(merge_bpe_backslash(String::new()), "");
+    }
+
+    #[test]
+    fn decode_ids_joins_and_merges() {
+        let vocab = ["[PAD]", "[BOS]", "[EOS]", "x", "\\", "frac", "a"]
+            .map(str::to_string)
+            .to_vec();
+        let ids: Vec<i64> = vec![1, 3, 4, 5, 3, 6, 2];
+        let result = decode_ids(&ids, &vocab);
+        assert_eq!(result, "x \\frac x a");
+    }
 }

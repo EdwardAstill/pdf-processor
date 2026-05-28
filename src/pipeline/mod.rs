@@ -910,7 +910,7 @@ fn write_formula_debug(
 }
 
 fn should_send_to_formula_sidecar(candidate: &FormulaCandidate) -> bool {
-    candidate.confidence >= 70 && matches!(candidate.status, FormulaStatus::LocalCandidate)
+    candidate.confidence >= 65
 }
 
 fn warn_on_formula_candidate_summary(
