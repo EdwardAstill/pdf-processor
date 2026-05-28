@@ -151,10 +151,37 @@ GPU can be enabled later without changing the API.
 - Word-based detection: implemented, enabled in non-conservative mode
 - Visual-band detection: implemented, opt-in via `--debug-formulas`
 - Debug crops: written to `debug/formulas/` with JSON manifest
-- LaTeX reconstruction: NOT implemented; visual-only candidates emit
-  `<!-- formula-review: ... -->` markers
+- Geometric LaTeX recovery: implemented (2026-05), uses baseline shifts for
+  subscripts/superscripts, vertical stacking for fractions, operator limits.
+  Quality is partial — correct on simple equations, garbled on multi-line or
+  structured formulas (see benchmark below).
+- Formula OCR sidecar: RapidLaTeXOCR integrated via subprocess, tested
+  2026-05-28. Subprocess-per-crop is slow (~1.5-16s/crop, model reload per
+  invocation). Native ONNX path exists behind `--features onnx-ocr`.
 - False positive suppression: partial (table suppression, reference filters in
   word path); visual path still gets decorative-rule FPs
+
+### Geometric vs RapidLaTeXOCR quality benchmark (2026-05-28)
+
+Tested on `math-number-theory.pdf` formula crops. RapidLaTeXOCR installed via
+`uv tool install rapid-latex-ocr --with requests`; inference on CPU.
+
+| Candidate | Geometric LaTeX | RapidLaTeXOCR |
+|---|---|---|
+| Conv equation | `\label {eq:conv Y_{h \times W_{k_1\times`... (missing braces) | Structured `\begin{array}`, correct subscripts ✅ |
+| Matmul equation | `\labe l eq:matmul }...\hat \times f} {W}` (garbled!) | `\hat{Y}_{h w b\times f}=\hat{X}_{h w b\times k_{1}k_{2}c}\hat{W}` ✅ clean |
+| RUNTIME equation | `\labe l ^{{eq:r} ^{m}...` (garbled) | Recognisable, minor errors |
+| CEIL_smooth | `^{m} ^{o} h c eilin g...` (broken) | Nested `\sum`, partially recovered |
+| Lambda params | Duplicated text | Clean `\underline{\lambda}`, proper spacing ✅ |
+
+**Conclusion**: RapidLaTeXOCR produces significantly better LaTeX than local
+geometric recovery on real formulas. Geometric is useful as a fast fallback;
+RapidLaTeXOCR should be preferred when quality matters.
+
+**Production path**: native ONNX (cargo build --features onnx-ocr) keeps models
+in memory. Estimated ~0.37s inference per crop (CPU), ~2-3s model load at
+startup. 56 crops ≈ 21 seconds total. Subprocess path is 10-40× slower because
+each invocation reloads ONNX models.
 
 ## What to Build Next
 

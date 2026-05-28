@@ -55,6 +55,10 @@ Command-name caveat: the research notes cite `rapid_latex_ocr`; current README
 and CLI examples cite `rapid-latex-ocr`. Verify the installed package's actual
 entry point before standardising docs or scripts.
 
+2026-05-28 update: entry point is `rapid_latex_ocr` (underscore). The PyPI
+package is `rapid-latex-ocr` (hyphen). Docs now use `rapid_latex_ocr` for
+command examples.
+
 ---
 
 ## Open problems

@@ -549,7 +549,7 @@ mod tests {
     }
 
     fn render(words: &[FormulaWord], source: &str) -> String {
-        geometric_latex(words, source, |s| unicode_to_latex(s))
+        geometric_latex(words, source, unicode_to_latex)
     }
 
     #[test]

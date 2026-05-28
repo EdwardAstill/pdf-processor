@@ -891,7 +891,7 @@ fn write_formula_debug(
                         candidate.sidecar = attempt;
                     } else {
                         candidate.sidecar = FormulaSidecarAttempt::rejected_by_policy(
-                            "candidate below sidecar confidence threshold",
+                            "candidate below sidecar confidence or status threshold",
                         );
                     }
                 }
@@ -910,9 +910,7 @@ fn write_formula_debug(
 }
 
 fn should_send_to_formula_sidecar(candidate: &FormulaCandidate) -> bool {
-    candidate.latex.is_none()
-        && candidate.confidence >= 70
-        && matches!(candidate.status, FormulaStatus::LocalCandidate)
+    candidate.confidence >= 70 && matches!(candidate.status, FormulaStatus::LocalCandidate)
 }
 
 fn warn_on_formula_candidate_summary(
