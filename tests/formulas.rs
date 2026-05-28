@@ -61,8 +61,20 @@ fn debug_formulas_writes_json_for_candidate_page() {
         .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
         .collect();
     assert!(!json_files.is_empty(), "expected formula debug JSON");
+    assert!(
+        debug_dir.join("index.json").exists(),
+        "expected aggregate formula index"
+    );
 
-    let first_json = fs::read_to_string(&json_files[0]).unwrap();
+    let page_json = json_files
+        .iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("page"))
+        })
+        .expect("expected page formula JSON");
+    let first_json = fs::read_to_string(page_json).unwrap();
     assert!(first_json.contains("\"page_num\""));
     assert!(first_json.contains("\"status\""));
     assert!(first_json.contains("\"confidence\""));

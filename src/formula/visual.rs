@@ -6,6 +6,7 @@ use mupdf::{Colorspace, Device, Document as MuDocument, IRect, Matrix, Pixmap};
 use crate::document::types::{Bbox, RawPage};
 
 use super::detect::{FormulaCandidate, FormulaStatus};
+use super::ocr::FormulaSidecarAttempt;
 
 const VISUAL_BACKEND: &str = "visual-page-render";
 const RENDER_DPI: u32 = 72;
@@ -76,6 +77,8 @@ pub fn detect_visual_formula_candidates(
             status: FormulaStatus::NeedsReview,
             backend: Some(VISUAL_BACKEND.to_string()),
             latex: None,
+            words: Vec::new(),
+            sidecar: FormulaSidecarAttempt::not_attempted(),
             reason,
             crop_path: None,
         });

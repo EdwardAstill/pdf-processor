@@ -123,6 +123,7 @@ Main convert options:
 | `--min-v-gap <pts>` | `12.0` | XY-Cut vertical-cut tuning |
 | `--no-images` | off | Skip image extraction |
 | `--conservative` | off | Prefer review-safe fallbacks over heuristic reconstruction |
+| `--markdown-style <STYLE>` | `clean` | Markdown output profile: `clean`, `faithful`, or `review` (`--format` alias) |
 | `--figures <MODE>` | `embedded` | Image output mode: `embedded`, `snapshot`, `both`, or `none` |
 | `--figure-dpi <N>` | `200` | DPI for rendered figure snapshots |
 | `--figure-padding <pts>` | `8.0` | Padding around detected snapshot regions |
@@ -132,6 +133,8 @@ Main convert options:
 | `--formulas <MODE>` | `auto` | Formula handling: `auto`, `local`, `hybrid`, or `off` |
 | `--debug-formulas` | off | Write formula candidate JSON and rendered crops under `debug/formulas/` |
 | `--formula-sidecar <SIDECAR>` | off | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
+| `--formula-sidecar-timeout-secs <N>` | `30` | Timeout for each sidecar crop recognition attempt |
+| `--formula-emit <MODE>` | `auto` | Formula emission policy: `conservative`, `auto`, `all`, or `none` |
 | `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
 | `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
 | `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
@@ -165,17 +168,32 @@ pdfp convert paper.pdf --figures both --debug-figures -o out/
 # Preserve hard catalogue tables as fixed-width layout blocks
 pdfp convert catalogue.pdf --tables layout -o out/
 
+# Default clean reader-friendly Markdown: normalize PDF artefacts and reflow wrapped paragraphs
+pdfp convert paper.pdf -o out/
+
+# Preserve the older PDF-faithful extraction shape when layout fidelity matters
+pdfp convert paper.pdf --markdown-style faithful -o out/
+
 # Review-safe conversion: no speculative Markdown tables or formula rendering
+pdfp convert standard.pdf --markdown-style review --debug-formulas --debug-tables -o out/
+
+# Backwards-compatible review-safe preset
 pdfp convert standard.pdf --conservative --debug-formulas --debug-tables -o out/
 
 # Force coordinate-derived Markdown tables where possible
 pdfp convert catalogue.pdf --tables native --debug-tables -o out/
 
-# Audit formula candidates and rendered equation crops
+# Audit formula candidates, rendered equation crops, and debug/formulas/index.json
 pdfp convert standard.pdf --debug-formulas -o out/
 
 # Recover high-confidence formula crops with a local sidecar command
 pdfp convert standard.pdf --formula-sidecar rapid-latex-ocr --debug-formulas -o out/
+
+# Audit formulas without emitting Markdown math blocks
+pdfp convert standard.pdf --debug-formulas --formula-emit none -o out/
+
+# Compare native formula extraction with available optional providers
+scripts/formula-eval.sh standard.pdf out/formula-eval
 
 # Route formula-heavy pages through Docling enrichment
 pdfp convert standard.pdf --hybrid docling --formulas hybrid -o out/
@@ -282,7 +300,8 @@ Metadata writes are Info-dictionary only. If a PDF also has XMP metadata, `pdfp`
 ### Evaluation
 
 Use `pdfp eval` to run the local conversion pipeline against fixture JSON files
-and report formula recall, heading accuracy, and table recall:
+and report emitted formula recall, formula detection recall from `debug/formulas/index.json`,
+LaTeX snippet recall, heading accuracy, and table recall:
 
 ```sh
 pdfp eval tests/eval_fixtures/
@@ -349,7 +368,7 @@ For review-sensitive work, start with `--conservative`. It keeps the conversion 
 
 Table handling is local and coordinate-based for born-digital PDFs. `pdfp` combines word alignment with rendered rule-line geometry, so standards tables with explicit horizontal rules can be detected even when the text layer is not already split into cells. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` or `--conservative` for engineering catalogues and standards where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
 
-Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` to send high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. Use `--conservative` when formulas must be audited without heuristic Markdown rendering. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction.
+Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math under the default `--formula-emit auto` policy, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` to send high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Sidecar outcomes are recorded per candidate as `recovered`, `empty-output`, `timeout`, `command-failed`, or `rejected-by-policy`, with timing and stderr/error summaries where available. Use `--formula-sidecar-timeout-secs` to tune slow providers. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. Use `--formula-emit conservative` or `--formula-emit none` when formulas must be audited without risky heuristic Markdown rendering; recovered sidecar LaTeX is preferred over local text. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction. `scripts/formula-eval.sh` compares native extraction with available sidecars/providers and writes `summary.json` plus `summary.md`.
 
 Optional native formula OCR:
 

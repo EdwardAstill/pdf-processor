@@ -77,7 +77,7 @@ fn renders_heading_paragraph() {
         ],
     );
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(result.markdown.contains("# Introduction"));
     assert!(result.markdown.contains("Hello world."));
@@ -101,7 +101,7 @@ fn renders_formula_review_marker() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result.markdown.contains("<!-- formula-review: page=1"));
@@ -110,6 +110,115 @@ fn renders_formula_review_marker() {
         .markdown
         .contains("crop=\"debug/formulas/page1_formula1.png\""));
     assert!(!result.markdown.contains("$$"));
+}
+
+#[test]
+fn renderer_new_uses_clean_default() {
+    let page = make_page(
+        0,
+        595.0,
+        842.0,
+        vec![
+            make_block(0, "Wrapped PDF", BlockKind::Paragraph, 0),
+            make_block(1, "line.", BlockKind::Paragraph, 1),
+        ],
+    );
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::new(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(result.markdown.contains("Wrapped PDF line."));
+}
+
+#[test]
+fn clean_style_suppresses_formula_review_marker() {
+    let page = Page {
+        page_num: 0,
+        width: 595.0,
+        height: 842.0,
+        blocks: vec![make_block(
+            0,
+            "",
+            BlockKind::FormulaReview {
+                reason: "visual-isolated-equation-band".into(),
+                crop_path: Some("debug/formulas/page1_formula1.png".into()),
+            },
+            0,
+        )],
+        override_markdown: None,
+    };
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::clean(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(!result.markdown.contains("formula-review"));
+    assert!(result.markdown.contains("<!-- page:1 -->"));
+}
+
+#[test]
+fn clean_style_reflows_pdf_line_fragments() {
+    let page = make_page(
+        0,
+        595.0,
+        842.0,
+        vec![
+            make_block(
+                0,
+                "Lorem ipsum dolor sit amet, consectetur",
+                BlockKind::Paragraph,
+                0,
+            ),
+            make_block(1, "adipiscing elit.", BlockKind::Paragraph, 1),
+            make_block(2, "Second paragraph.", BlockKind::Paragraph, 2),
+        ],
+    );
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::clean(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(result
+        .markdown
+        .contains("Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n\nSecond paragraph."));
+}
+
+#[test]
+fn clean_style_normalizes_common_pdf_glyph_artifacts() {
+    let page = make_page(
+        0,
+        595.0,
+        842.0,
+        vec![make_block(
+            0,
+            "\u{f0b7}f \u{fb01} \u{fb02} bad�text",
+            BlockKind::Paragraph,
+            0,
+        )],
+    );
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::clean(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(result.markdown.contains("- f fi fl badtext"));
+}
+
+#[test]
+fn clean_style_preserves_fenced_code_spacing() {
+    let page = make_page(
+        0,
+        595.0,
+        842.0,
+        vec![make_block(
+            0,
+            "A        B\n1        2",
+            BlockKind::CodeBlock,
+            0,
+        )],
+    );
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::clean(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(result.markdown.contains("```\nA        B\n1        2\n```"));
 }
 
 #[test]
@@ -130,7 +239,7 @@ fn renders_formula_with_latex_as_display_math() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(
@@ -155,7 +264,7 @@ fn reflows_artificial_blank_lines_inside_paragraphs() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(result
         .markdown
@@ -177,7 +286,7 @@ fn paragraph_reflow_preserves_mathish_subscript_and_superscript_markup() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(result
         .markdown
@@ -199,7 +308,7 @@ fn skips_page_numbers_and_running_headers() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(!result.markdown.contains("Chapter 1"));
     assert!(!result.markdown.contains("Tagged artifact"));
@@ -221,7 +330,7 @@ fn splits_sections_by_headings() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert_eq!(result.sections.len(), 2);
     assert_eq!(result.sections[0].title, "Intro");
@@ -259,7 +368,7 @@ fn renders_unordered_list() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(result.markdown.contains("- Apple"));
     assert!(result.markdown.contains("- Banana"));
@@ -280,7 +389,7 @@ fn renders_table() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(result.markdown.contains("| Name | Age |"));
     assert!(result.markdown.contains("| --- |"));
@@ -317,7 +426,7 @@ fn renders_key_value_table_as_field_list() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result.markdown.contains("- Invoice Number: 2020-10"));
@@ -346,7 +455,7 @@ fn renders_implicit_invoice_rows_as_table() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result
@@ -376,7 +485,7 @@ fn renders_form_labels_as_labeled_entries() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result.markdown.contains("- Text, required: ________"));
@@ -446,7 +555,7 @@ fn scanned_page_warning_emitted() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(
         result.markdown.contains(
@@ -469,7 +578,7 @@ fn no_warning_for_page_with_blocks() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
     assert!(
         !result.markdown.contains("WARNING"),
@@ -544,7 +653,7 @@ fn scholarly_front_matter_demotes_metadata_and_author_tables() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result.markdown.contains("# Attention Is All You Need"));
@@ -600,7 +709,7 @@ fn scholarly_front_matter_splits_inline_abstract_heading() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(result.markdown.contains("## Abstract"));
@@ -642,7 +751,7 @@ fn suppresses_repeated_edge_text_after_first_occurrence() {
         make_page(1, "Page two body."),
         make_page(2, "Page three body."),
     ]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert_eq!(result.markdown.matches("www.pdfa.org").count(), 1);
@@ -723,7 +832,7 @@ fn scholarly_front_matter_drops_decorative_images_and_keeps_captioned_figure() {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     let result = renderer.render_document(&doc).unwrap();
 
     assert!(!result.markdown.contains("images/logo.png"));
@@ -747,7 +856,7 @@ fn render_single_block(block: Block) -> String {
         override_markdown: None,
     };
     let doc = make_doc(vec![page]);
-    let renderer = MarkdownRenderer::new(false, None);
+    let renderer = MarkdownRenderer::faithful(false, None);
     renderer.render_document(&doc).unwrap().markdown
 }
 

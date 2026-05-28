@@ -1,0 +1,14 @@
+{
+  "pdf": "formula_corpus/simple.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 3,
+      "expected_formula_detection_count": 3,
+      "expected_formula_latex_snippets": ["𝐸=", "𝑎𝑛="],
+      "formula_false_positive_budget": 1,
+      "expected_headings": [],
+      "expected_tables": 0
+    }
+  ]
+}

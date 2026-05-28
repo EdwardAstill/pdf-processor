@@ -4,6 +4,26 @@ use std::cmp::Ordering;
 use std::sync::OnceLock;
 
 use crate::document::types::{Bbox, RawPage, RawWord};
+use crate::formula::ocr::FormulaSidecarAttempt;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FormulaWord {
+    pub text: String,
+    pub bbox: Bbox,
+    pub baseline_y: f32,
+    pub font_size: f32,
+}
+
+impl From<&RawWord> for FormulaWord {
+    fn from(word: &RawWord) -> Self {
+        Self {
+            text: word.text.clone(),
+            bbox: word.bbox,
+            baseline_y: word.baseline_y,
+            font_size: word.font_size,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct FormulaCandidate {
@@ -11,11 +31,15 @@ pub struct FormulaCandidate {
     pub formula_index: usize,
     pub bbox: Bbox,
     pub source_text: String,
+    /// Per-word geometry for geometric LaTeX recovery. Skipped in debug JSON to keep reports compact.
+    #[serde(skip)]
+    pub words: Vec<FormulaWord>,
     pub equation_number: Option<String>,
     pub confidence: u8,
     pub status: FormulaStatus,
     pub backend: Option<String>,
     pub latex: Option<String>,
+    pub sidecar: FormulaSidecarAttempt,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_path: Option<String>,
@@ -37,6 +61,7 @@ struct FormulaLine {
     word_count: usize,
     math_score: usize,
     equation_number: Option<String>,
+    words: Vec<RawWord>,
 }
 
 pub fn detect_formula_candidates(
@@ -90,11 +115,13 @@ pub fn detect_formula_candidates(
         }) {
             continue;
         }
+        let formula_words: Vec<FormulaWord> = line.words.iter().map(FormulaWord::from).collect();
         candidates.push(FormulaCandidate {
             page_num: raw_page.page_num,
             formula_index: candidates.len(),
             bbox: padded,
             source_text: line.text.trim().to_string(),
+            words: formula_words,
             equation_number: line.equation_number,
             confidence,
             status: if confidence >= 70 {
@@ -104,6 +131,7 @@ pub fn detect_formula_candidates(
             },
             backend: None,
             latex: None,
+            sidecar: FormulaSidecarAttempt::not_attempted(),
             reason,
             crop_path: None,
         });
@@ -172,12 +200,14 @@ fn group_words_into_lines(words: &[RawWord]) -> Vec<FormulaLine> {
                 parts.push(word.text.trim());
             }
             let text = parts.join(" ");
+            let raw_words: Vec<RawWord> = group.iter().map(|w| (*w).clone()).collect();
             Some(FormulaLine {
                 bbox,
                 word_count: group.len(),
                 math_score: math_score(&text),
                 equation_number: extract_equation_number(&text),
                 text,
+                words: raw_words,
             })
         })
         .collect()

@@ -1,6 +1,8 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+use crate::render::markdown::MarkdownStyle as RenderMarkdownStyle;
+
 #[derive(Parser, Debug)]
 #[command(name = "pdfp", about = "Local PDF processor", version)]
 pub struct Cli {
@@ -75,6 +77,15 @@ pub struct ConvertOptions {
     #[arg(long)]
     pub conservative: bool,
 
+    /// Markdown output style: faithful extraction, clean reader-friendly Markdown, or review/audit output.
+    #[arg(
+        long = "markdown-style",
+        alias = "format",
+        value_enum,
+        default_value = "clean"
+    )]
+    pub markdown_style: MarkdownStyleArg,
+
     /// Figure/image output mode for markdown conversion
     #[arg(long, value_enum, default_value = "embedded")]
     pub figures: FigureMode,
@@ -110,6 +121,14 @@ pub struct ConvertOptions {
     /// Optional formula OCR sidecar. Use a command, cmd:<command>, or onnx:<model-dir>.
     #[arg(long, value_name = "SIDECAR")]
     pub formula_sidecar: Option<String>,
+
+    /// Formula sidecar timeout per crop, in seconds.
+    #[arg(long, default_value = "30")]
+    pub formula_sidecar_timeout_secs: u64,
+
+    /// Formula emission policy for detected/recovered candidates.
+    #[arg(long = "formula-emit", value_enum, default_value = "auto")]
+    pub formula_emit: FormulaEmitMode,
 
     /// Verbose output
     #[arg(short, long)]
@@ -650,6 +669,18 @@ pub enum FormulaMode {
     Off,
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormulaEmitMode {
+    /// Emit only candidates that pass conservative safety gates.
+    Conservative,
+    /// Emit high-confidence local candidates and recovered sidecar LaTeX.
+    Auto,
+    /// Emit every non-empty detected or recovered formula candidate.
+    All,
+    /// Never emit formula blocks; keep audit/debug records only.
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormulaSidecarArg {
     Command(String),
@@ -672,9 +703,33 @@ pub fn parse_formula_sidecar(value: &str) -> anyhow::Result<FormulaSidecarArg> {
     Ok(FormulaSidecarArg::Command(command.to_string()))
 }
 
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownStyleArg {
+    /// Keep current PDF-faithful extraction output.
+    Faithful,
+    /// Produce reader-friendly Markdown by normalizing PDF layout artefacts.
+    Clean,
+    /// Prefer audit-safe output with conservative extraction choices.
+    Review,
+}
+
+impl From<MarkdownStyleArg> for RenderMarkdownStyle {
+    fn from(style: MarkdownStyleArg) -> Self {
+        match style {
+            MarkdownStyleArg::Faithful => RenderMarkdownStyle::Faithful,
+            MarkdownStyleArg::Clean => RenderMarkdownStyle::Clean,
+            MarkdownStyleArg::Review => RenderMarkdownStyle::Review,
+        }
+    }
+}
+
 impl ConvertOptions {
+    pub fn review_safe_profile(&self) -> bool {
+        self.conservative || matches!(self.markdown_style, MarkdownStyleArg::Review)
+    }
+
     pub fn effective_figure_mode(&self) -> FigureMode {
-        if self.conservative {
+        if self.review_safe_profile() {
             FigureMode::Embedded
         } else {
             self.figures
@@ -682,7 +737,7 @@ impl ConvertOptions {
     }
 
     pub fn effective_table_mode(&self) -> TableMode {
-        if self.conservative {
+        if self.review_safe_profile() {
             TableMode::Layout
         } else {
             self.tables
@@ -690,11 +745,19 @@ impl ConvertOptions {
     }
 
     pub fn effective_formula_mode(&self) -> FormulaMode {
-        if self.conservative {
+        if self.review_safe_profile() {
             FormulaMode::Auto
         } else {
             self.formulas
         }
+    }
+
+    pub fn effective_render_math(&self) -> bool {
+        !self.review_safe_profile()
+    }
+
+    pub fn effective_markdown_style(&self) -> RenderMarkdownStyle {
+        self.markdown_style.into()
     }
 }
 
@@ -706,6 +769,7 @@ impl Default for ConvertOptions {
             min_v_gap: 12.0,
             no_images: false,
             conservative: false,
+            markdown_style: MarkdownStyleArg::Clean,
             figures: FigureMode::Embedded,
             figure_dpi: 200,
             figure_padding: 8.0,
@@ -715,6 +779,8 @@ impl Default for ConvertOptions {
             formulas: FormulaMode::Auto,
             debug_formulas: false,
             formula_sidecar: None,
+            formula_sidecar_timeout_secs: 30,
+            formula_emit: FormulaEmitMode::Auto,
             verbose: false,
             hybrid: HybridMode::Off,
             hybrid_url: "http://localhost:5001".to_string(),
@@ -758,6 +824,7 @@ mod tests {
             min_v_gap: 12.0,
             no_images: false,
             conservative,
+            markdown_style: MarkdownStyleArg::Clean,
             figures: FigureMode::Snapshot,
             figure_dpi: 200,
             figure_padding: 8.0,
@@ -767,6 +834,8 @@ mod tests {
             formulas: FormulaMode::Local,
             debug_formulas: false,
             formula_sidecar: None,
+            formula_sidecar_timeout_secs: 30,
+            formula_emit: FormulaEmitMode::Auto,
             verbose: false,
             hybrid: HybridMode::Off,
             hybrid_url: "http://localhost:5001".to_string(),
@@ -775,6 +844,14 @@ mod tests {
             hybrid_cache_dir: None,
             ocr: OcrOptions::default(),
         }
+    }
+
+    #[test]
+    fn default_markdown_style_is_clean() {
+        assert_eq!(
+            ConvertOptions::default().markdown_style,
+            MarkdownStyleArg::Clean
+        );
     }
 
     #[test]
@@ -793,6 +870,27 @@ mod tests {
         assert_eq!(options.effective_figure_mode(), FigureMode::Snapshot);
         assert_eq!(options.effective_table_mode(), TableMode::Native);
         assert_eq!(options.effective_formula_mode(), FormulaMode::Local);
+    }
+
+    #[test]
+    fn review_style_uses_review_safe_conversion_modes() {
+        let mut options = convert_options(false);
+        options.markdown_style = MarkdownStyleArg::Review;
+
+        assert_eq!(options.effective_figure_mode(), FigureMode::Embedded);
+        assert_eq!(options.effective_table_mode(), TableMode::Layout);
+        assert_eq!(options.effective_formula_mode(), FormulaMode::Auto);
+        assert!(!options.effective_render_math());
+    }
+
+    #[test]
+    fn clean_style_keeps_selected_table_mode_without_disabling_math_rendering() {
+        let mut options = convert_options(false);
+        options.markdown_style = MarkdownStyleArg::Clean;
+        options.tables = TableMode::Layout;
+
+        assert_eq!(options.effective_table_mode(), TableMode::Layout);
+        assert!(options.effective_render_math());
     }
 }
 

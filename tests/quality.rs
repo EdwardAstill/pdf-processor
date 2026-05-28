@@ -1,6 +1,7 @@
 //! Quality-harness integration tests.
 
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn project_root() -> PathBuf {
@@ -20,11 +21,27 @@ fn fixture(name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-fn run_quality_report(
-    corpus: &std::path::Path,
-    output_dir: &std::path::Path,
-    recursive: bool,
-) -> std::process::Output {
+fn fake_formula_sidecar(name: &str, latex: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("fake-formula-sidecar");
+    let mut file = std::fs::File::create(&script).unwrap();
+    writeln!(file, "#!/bin/sh").unwrap();
+    writeln!(file, "printf '{}\\n'", latex).unwrap();
+    drop(file);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&script, permissions).unwrap();
+    }
+
+    script
+}
+
+fn run_quality_report(corpus: &Path, output_dir: &Path, recursive: bool) -> std::process::Output {
     let root = project_root();
     Command::new("bash")
         .arg(root.join("scripts/quality-report.sh"))
@@ -224,14 +241,99 @@ fn formula_candidate_report_contains_page_and_status() {
         .join("math-number-theory")
         .join("debug")
         .join("formulas");
-    let report_path = std::fs::read_dir(&debug_dir)
+    let index = std::fs::read_to_string(debug_dir.join("index.json"))
+        .expect("expected aggregate formula index");
+    assert!(index.contains("\"schema_version\": 1"));
+    assert!(index.contains("\"candidate_count\""));
+    assert!(index.contains("\"pages_with_candidates\""));
+    assert!(index.contains("\"emitted_count\""));
+    assert!(index.contains("\"review_block_count\""));
+
+    let page_report_path = std::fs::read_dir(&debug_dir)
         .unwrap_or_else(|err| panic!("expected formula debug dir {debug_dir:?}: {err}"))
         .map(|entry| entry.unwrap().path())
-        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .expect("expected at least one formula JSON report");
-    let report = std::fs::read_to_string(report_path).unwrap();
-    assert!(report.contains("\"page_num\""));
-    assert!(report.contains("\"status\""));
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("page") && name.ends_with(".json"))
+        })
+        .expect("expected at least one page formula JSON report");
+    let page_report = std::fs::read_to_string(page_report_path).unwrap();
+    assert!(page_report.contains("\"page_num\""));
+    assert!(page_report.contains("\"status\""));
+}
+
+#[test]
+fn formula_eval_harness_runs_with_no_optional_providers() {
+    let Some(pdf) = fixture("math-number-theory.pdf") else {
+        return;
+    };
+    let root = project_root();
+    let output_dir = root.join("target/formula-eval-no-optional-test");
+    let _ = std::fs::remove_dir_all(&output_dir);
+
+    let result = Command::new("bash")
+        .arg(root.join("scripts/formula-eval.sh"))
+        .arg(&pdf)
+        .arg(&output_dir)
+        .env(
+            "PDFP_FORMULA_EVAL_PROVIDERS",
+            "native rapid-latex-ocr docling onnx",
+        )
+        .env("PDFP_FORMULA_EVAL_DOCLING_URL", "http://127.0.0.1:9")
+        .output()
+        .expect("formula eval script should be runnable with bash");
+
+    assert!(
+        result.status.success(),
+        "formula eval should skip unavailable optional providers\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let summary = std::fs::read_to_string(output_dir.join("summary.json"))
+        .expect("formula eval should write summary.json");
+    assert!(summary.contains("native"));
+    assert!(summary.contains("skipped"));
+}
+
+#[test]
+fn formula_eval_harness_runs_with_fake_sidecar_provider() {
+    let Some(pdf) = fixture("math-number-theory.pdf") else {
+        return;
+    };
+    let root = project_root();
+    let output_dir = root.join("target/formula-eval-fake-sidecar-test");
+    let _ = std::fs::remove_dir_all(&output_dir);
+    let sidecar = fake_formula_sidecar("pdfp-formula-eval-fake", "E = mc^2");
+
+    let result = Command::new("bash")
+        .arg(root.join("scripts/formula-eval.sh"))
+        .arg(&pdf)
+        .arg(&output_dir)
+        .env("PDFP_FORMULA_EVAL_PROVIDERS", "native sidecar")
+        .env("PDFP_FORMULA_EVAL_SIDECAR_COMMAND", &sidecar)
+        .output()
+        .expect("formula eval script should be runnable with bash");
+
+    assert!(
+        result.status.success(),
+        "formula eval fake sidecar run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let summary: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(output_dir.join("summary.json")).unwrap())
+            .unwrap();
+    let sidecar_row = summary["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["provider"] == "sidecar")
+        .expect("sidecar row should exist");
+    assert_eq!(sidecar_row["status"], "ok");
+    assert!(sidecar_row["recovered"].as_u64().unwrap() > 0);
 }
 
 #[test]

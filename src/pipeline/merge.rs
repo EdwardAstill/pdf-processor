@@ -325,6 +325,7 @@ mod tests {
     use super::*;
     use crate::document::types::{Bbox, Block, BlockKind, DetectedTable, TableRender};
     use crate::formula::detect::{FormulaCandidate, FormulaStatus};
+    use crate::formula::ocr::FormulaSidecarAttempt;
     use crate::layout::table::{TableEvidence, TableEvidenceSource};
     use std::collections::BTreeSet;
 
@@ -398,6 +399,8 @@ mod tests {
             status: FormulaStatus::LocalCandidate,
             backend: None,
             latex: None,
+            words: Vec::new(),
+            sidecar: FormulaSidecarAttempt::not_attempted(),
             reason: "test".into(),
             crop_path: None,
         }

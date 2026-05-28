@@ -3,7 +3,7 @@
 //! Enable with `cargo build --features onnx-ocr` and select at runtime with
 //! `--formula-sidecar onnx:<model-dir>`.
 
-use crate::formula::ocr::FormulaSidecar;
+use crate::formula::ocr::{FormulaSidecar, FormulaSidecarAttempt, FormulaSidecarStatus};
 use anyhow::{bail, Context};
 use image::imageops::{self, FilterType};
 use ndarray::{Array2, Array4, ArrayD};
@@ -137,9 +137,39 @@ impl OnnxFormulaSidecar {
 }
 
 impl FormulaSidecar for OnnxFormulaSidecar {
-    fn recognize(&self, crop_path: &Path) -> Option<String> {
-        self.recognize_inner(crop_path).ok().flatten()
+    fn recognize(&self, crop_path: &Path) -> FormulaSidecarAttempt {
+        let start = std::time::Instant::now();
+        match self.recognize_inner(crop_path) {
+            Ok(Some(latex)) => FormulaSidecarAttempt {
+                status: FormulaSidecarStatus::Recovered,
+                backend: Some("onnx-formula-sidecar".to_string()),
+                latex: Some(latex),
+                duration_ms: Some(elapsed_ms(start)),
+                stderr: None,
+                error: None,
+            },
+            Ok(None) => FormulaSidecarAttempt {
+                status: FormulaSidecarStatus::EmptyOutput,
+                backend: Some("onnx-formula-sidecar".to_string()),
+                latex: None,
+                duration_ms: Some(elapsed_ms(start)),
+                stderr: None,
+                error: None,
+            },
+            Err(err) => FormulaSidecarAttempt {
+                status: FormulaSidecarStatus::CommandFailed,
+                backend: Some("onnx-formula-sidecar".to_string()),
+                latex: None,
+                duration_ms: Some(elapsed_ms(start)),
+                stderr: None,
+                error: Some(err.to_string()),
+            },
+        }
     }
+}
+
+fn elapsed_ms(start: std::time::Instant) -> u64 {
+    start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 /// Load a formula crop image, resize to `[1, 1, 192, 672]`, and normalise to `[0, 1]`.

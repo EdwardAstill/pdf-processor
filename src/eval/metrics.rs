@@ -11,6 +11,15 @@ pub struct PageMetrics {
     pub formula_false_positives: usize,
     pub formula_recall: f32,
     pub formula_precision: f32,
+    pub formula_detection_found: usize,
+    pub formula_detection_expected: usize,
+    pub formula_detection_matches: usize,
+    pub formula_detection_false_positives: usize,
+    pub formula_detection_recall: f32,
+    pub formula_detection_precision: f32,
+    pub formula_latex_snippets_expected: usize,
+    pub formula_latex_snippets_matched: usize,
+    pub formula_latex_snippet_recall: f32,
     pub heading_found: usize,
     pub heading_matches: usize,
     pub heading_expected: usize,
@@ -53,6 +62,15 @@ pub struct DocMetrics {
     pub formula_false_positives: usize,
     pub formula_page_recall_sum: f32,
     pub formula_page_precision_sum: f32,
+    pub formula_detection_found: usize,
+    pub formula_detection_expected: usize,
+    pub formula_detection_matches: usize,
+    pub formula_detection_false_positives: usize,
+    pub formula_detection_page_recall_sum: f32,
+    pub formula_detection_page_precision_sum: f32,
+    pub formula_latex_snippets_expected: usize,
+    pub formula_latex_snippets_matched: usize,
+    pub formula_latex_snippet_page_recall_sum: f32,
     pub heading_found: usize,
     pub heading_matches: usize,
     pub heading_expected: usize,
@@ -93,6 +111,24 @@ impl DocMetrics {
 
     pub fn formula_precision(&self) -> f32 {
         ratio_or_full(self.formula_matches, self.formula_found)
+    }
+
+    pub fn formula_detection_recall(&self) -> f32 {
+        ratio_or_full(
+            self.formula_detection_matches,
+            self.formula_detection_expected,
+        )
+    }
+
+    pub fn formula_detection_precision(&self) -> f32 {
+        ratio_or_full(self.formula_detection_matches, self.formula_detection_found)
+    }
+
+    pub fn formula_latex_snippet_recall(&self) -> f32 {
+        ratio_or_full(
+            self.formula_latex_snippets_matched,
+            self.formula_latex_snippets_expected,
+        )
     }
 
     pub fn heading_accuracy(&self) -> f32 {
@@ -263,6 +299,18 @@ pub fn compute_page_metrics(page: &Page, expected: &PageExpectation) -> PageMetr
         formula_false_positives,
         formula_recall: ratio_or_full(formula_matches, formula_expected),
         formula_precision: ratio_or_full(formula_matches, formula_found),
+        formula_detection_found: formula_found,
+        formula_detection_expected: formula_expected,
+        formula_detection_matches: formula_matches,
+        formula_detection_false_positives: formula_false_positives,
+        formula_detection_recall: ratio_or_full(formula_matches, formula_expected),
+        formula_detection_precision: ratio_or_full(formula_matches, formula_found),
+        formula_latex_snippets_expected: expected.expected_formula_latex_snippets.len(),
+        formula_latex_snippets_matched: 0,
+        formula_latex_snippet_recall: ratio_or_full(
+            0,
+            expected.expected_formula_latex_snippets.len(),
+        ),
         heading_found,
         heading_matches,
         heading_expected,
@@ -306,6 +354,59 @@ pub fn compute_page_metrics(page: &Page, expected: &PageExpectation) -> PageMetr
             vector_only_regions_acknowledged,
             expected.expected_vector_only_regions,
         ),
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FormulaDebugPageMetrics {
+    pub candidates: usize,
+    pub emitted: usize,
+    pub latex_values: Vec<String>,
+}
+
+pub fn apply_formula_debug_metrics(
+    metrics: &mut PageMetrics,
+    expected: &PageExpectation,
+    debug: &FormulaDebugPageMetrics,
+) {
+    if let Some(expected_detection) = expected.expected_formula_detection_count {
+        metrics.formula_detection_found = debug.candidates;
+        metrics.formula_detection_expected = expected_detection;
+        metrics.formula_detection_matches = debug.candidates.min(expected_detection);
+        let budgeted_expected = expected_detection + expected.formula_false_positive_budget;
+        metrics.formula_detection_false_positives =
+            debug.candidates.saturating_sub(budgeted_expected);
+        metrics.formula_detection_recall = ratio_or_full(
+            metrics.formula_detection_matches,
+            metrics.formula_detection_expected,
+        );
+        metrics.formula_detection_precision =
+            if metrics.formula_detection_found <= budgeted_expected {
+                1.0
+            } else {
+                ratio_or_full(
+                    metrics.formula_detection_matches,
+                    metrics.formula_detection_found,
+                )
+            };
+    }
+
+    if !expected.expected_formula_latex_snippets.is_empty() {
+        metrics.formula_latex_snippets_expected = expected.expected_formula_latex_snippets.len();
+        metrics.formula_latex_snippets_matched = expected
+            .expected_formula_latex_snippets
+            .iter()
+            .filter(|snippet| {
+                debug
+                    .latex_values
+                    .iter()
+                    .any(|latex| latex.contains(snippet.as_str()))
+            })
+            .count();
+        metrics.formula_latex_snippet_recall = ratio_or_full(
+            metrics.formula_latex_snippets_matched,
+            metrics.formula_latex_snippets_expected,
+        );
     }
 }
 
@@ -381,6 +482,15 @@ pub fn aggregate(page_metrics: &[PageMetrics]) -> DocMetrics {
         doc.formula_false_positives += metrics.formula_false_positives;
         doc.formula_page_recall_sum += metrics.formula_recall;
         doc.formula_page_precision_sum += metrics.formula_precision;
+        doc.formula_detection_found += metrics.formula_detection_found;
+        doc.formula_detection_expected += metrics.formula_detection_expected;
+        doc.formula_detection_matches += metrics.formula_detection_matches;
+        doc.formula_detection_false_positives += metrics.formula_detection_false_positives;
+        doc.formula_detection_page_recall_sum += metrics.formula_detection_recall;
+        doc.formula_detection_page_precision_sum += metrics.formula_detection_precision;
+        doc.formula_latex_snippets_expected += metrics.formula_latex_snippets_expected;
+        doc.formula_latex_snippets_matched += metrics.formula_latex_snippets_matched;
+        doc.formula_latex_snippet_page_recall_sum += metrics.formula_latex_snippet_recall;
         doc.heading_found += metrics.heading_found;
         doc.heading_matches += metrics.heading_matches.min(metrics.heading_expected);
         doc.heading_expected += metrics.heading_expected;
@@ -450,6 +560,21 @@ pub fn print_report(doc_name: &str, doc: &DocMetrics) {
         doc.table_pages_found,
         doc.table_pages_false_positive,
     );
+    if doc.formula_detection_expected > 0 || doc.formula_latex_snippets_expected > 0 {
+        println!(
+            "  formula detection recall:    {:.1}% ({}/{})\n  formula detection precision: {:.1}% ({}/{}, fp {})\n  formula LaTeX snippet recall: {:.1}% ({}/{})\n",
+            100.0 * doc.formula_detection_recall(),
+            doc.formula_detection_matches,
+            doc.formula_detection_expected,
+            100.0 * doc.formula_detection_precision(),
+            doc.formula_detection_matches,
+            doc.formula_detection_found,
+            doc.formula_detection_false_positives,
+            100.0 * doc.formula_latex_snippet_recall(),
+            doc.formula_latex_snippets_matched,
+            doc.formula_latex_snippets_expected,
+        );
+    }
     if doc.table_regions_expected > 0 {
         println!(
             "  table region recall:    {:.1}% ({}/{})\n  table region precision: {:.1}% ({}/{}, fp {}, fn {})\n",

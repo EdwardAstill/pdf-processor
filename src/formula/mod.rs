@@ -1,4 +1,5 @@
 pub mod detect;
+pub mod geometric;
 pub mod ocr;
 #[cfg(feature = "onnx-ocr")]
 pub mod ocr_onnx;

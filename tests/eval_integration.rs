@@ -157,6 +157,9 @@ fn formula_recall_counts_formula_blocks() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 2,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 0,
         expected_table_regions: vec![],
@@ -195,6 +198,9 @@ fn formula_precision_counts_extra_formula_blocks_as_false_positives() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 1,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 0,
         expected_table_regions: vec![],
@@ -222,6 +228,9 @@ fn heading_accuracy_counts_exact_matches() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 0,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![
             ExpectedHeading {
                 text: "Introduction".to_string(),
@@ -264,6 +273,9 @@ fn table_found_when_coordinate_table_present() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 0,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 1,
         expected_table_regions: vec![],
@@ -298,6 +310,9 @@ fn table_precision_counts_unexpected_table_page_as_false_positive() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 0,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 0,
         expected_table_regions: vec![],
@@ -324,6 +339,9 @@ fn table_region_precision_counts_extra_broad_table_as_false_positive() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 0,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 1,
         expected_table_regions: vec![tight.into()],
@@ -357,6 +375,9 @@ fn image_metrics_count_decorative_suppression_and_caption_pairing() {
     let expectation = PageExpectation {
         page: 1,
         expected_formula_count: 0,
+        expected_formula_detection_count: None,
+        expected_formula_latex_snippets: vec![],
+        formula_false_positive_budget: 0,
         expected_headings: vec![],
         expected_tables: 0,
         expected_table_regions: vec![],
@@ -394,6 +415,9 @@ fn runner_returns_error_for_missing_fixture_pdf_without_panicking() {
         pages: vec![PageExpectation {
             page: 1,
             expected_formula_count: 0,
+            expected_formula_detection_count: None,
+            expected_formula_latex_snippets: vec![],
+            formula_false_positive_budget: 0,
             expected_headings: vec![],
             expected_tables: 0,
             expected_table_regions: vec![],

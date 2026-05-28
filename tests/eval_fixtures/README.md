@@ -11,6 +11,9 @@ Each `.json` file describes one PDF's expected content.
     {
       "page": 1,
       "expected_formula_count": 2,
+      "expected_formula_detection_count": 2,
+      "expected_formula_latex_snippets": ["E =", "\\sqrt"],
+      "formula_false_positive_budget": 0,
       "expected_headings": [{ "text": "Introduction", "level": 1 }],
       "expected_tables": 1,
       "expected_table_regions": [
@@ -30,7 +33,10 @@ Each `.json` file describes one PDF's expected content.
 Field notes:
 
 - `page`: 1-indexed.
-- `expected_formula_count`: total formula or formula-review blocks expected on this page.
+- `expected_formula_count`: total emitted formula or formula-review blocks expected on this page.
+- `expected_formula_detection_count`: optional candidate count checked against `debug/formulas/index.json`.
+- `expected_formula_latex_snippets`: optional snippets that should appear in recovered/emitted candidate LaTeX or source text.
+- `formula_false_positive_budget`: allowed extra detected candidates before detection precision is penalized.
 - `expected_headings`: exact text, case-insensitive and trimmed, plus heading level.
 - `expected_tables`: `1` if at least one table is expected, otherwise `0`.
 - `expected_table_regions`: optional expected table bboxes in page coordinates. When present,
@@ -43,7 +49,9 @@ Field notes:
 - `skip_table_metrics`: use for image-only benchmark pages so table expectations do not pollute Stage 8.5 floors.
 
 `pdfp eval` reports both recall and precision. Formula precision is
-`matched / emitted_formula_blocks`, heading precision is
+`matched / emitted_formula_blocks`; formula detection precision is based on
+`debug/formulas/index.json` when `expected_formula_detection_count` is present;
+LaTeX snippet recall checks `expected_formula_latex_snippets`. Heading precision is
 `matched / emitted_heading_blocks`, and table precision is page-based:
 `expected_table_pages_found / emitted_table_pages`. Table-region precision is
 `matched_expected_regions / emitted_table_regions` using the fixture bboxes.
@@ -57,6 +65,19 @@ expectation fields are non-zero.
 2. Run `pdfp inspect <pdf>` to identify page content.
 3. Create a `.json` file with expectations for the pages you want to measure.
 4. Run `pdfp eval tests/eval_fixtures/`.
+
+## Formula Corpus
+
+The tracked formula corpus under `tests/eval_fixtures/formula_corpus/` contains
+Typst source and generated PDFs for simple equations, numbered equations, and
+fraction/sum/root/matrix-heavy equations. Regenerate them with:
+
+```sh
+scripts/generate-eval-fixtures.sh formula-corpus
+```
+
+These fixtures keep formula expectations non-zero in a fresh clone without the
+ignored external engineering corpus.
 
 ## Stage 7.5 Local Baseline
 

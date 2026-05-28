@@ -1,6 +1,6 @@
 #[cfg(feature = "onnx-ocr")]
 mod onnx_tests {
-    use pdf_processor::formula::ocr::FormulaSidecar;
+    use pdf_processor::formula::ocr::{FormulaSidecar, FormulaSidecarStatus};
     use pdf_processor::formula::ocr_onnx::{
         decode_ids, load_vocab, preprocess_image, OnnxFormulaSidecar,
     };
@@ -91,9 +91,10 @@ mod onnx_tests {
     fn recognize_returns_none_when_crop_is_missing() {
         let sidecar = OnnxFormulaSidecar::from_parts_for_test(vec!["<PAD>".into()]);
 
-        assert!(sidecar
-            .recognize(Path::new("/nonexistent/crop.png"))
-            .is_none());
+        assert_eq!(
+            sidecar.recognize(Path::new("/nonexistent/crop.png")).status,
+            FormulaSidecarStatus::CommandFailed
+        );
     }
 
     fn write_vocab_file(lines: &[&str]) -> tempfile::NamedTempFile {

@@ -1,0 +1,14 @@
+{
+  "pdf": "formula_corpus/heavy.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 3,
+      "expected_formula_detection_count": 4,
+      "expected_formula_latex_snippets": ["\\sum", "\\sqrt"],
+      "formula_false_positive_budget": 0,
+      "expected_headings": [],
+      "expected_tables": 0
+    }
+  ]
+}

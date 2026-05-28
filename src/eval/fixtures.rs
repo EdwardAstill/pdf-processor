@@ -40,6 +40,12 @@ pub struct PageExpectation {
     #[serde(default)]
     pub expected_formula_count: usize,
     #[serde(default)]
+    pub expected_formula_detection_count: Option<usize>,
+    #[serde(default)]
+    pub expected_formula_latex_snippets: Vec<String>,
+    #[serde(default)]
+    pub formula_false_positive_budget: usize,
+    #[serde(default)]
     pub expected_headings: Vec<ExpectedHeading>,
     #[serde(default)]
     pub expected_tables: usize,

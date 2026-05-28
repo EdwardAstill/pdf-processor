@@ -95,6 +95,7 @@ Useful conversion flags:
 | `-o`, `--output <DIR>` | Output directory |
 | `--no-images` | Skip extracted image files |
 | `--conservative` | Prefer review-safe fallbacks over heuristic reconstruction |
+| `--markdown-style clean|faithful|review` | Choose output shape; default is `clean`; `--format` is an alias |
 | `--figures embedded|snapshot|both|none` | Choose embedded image objects, rendered figure snapshots, both, or no image output |
 | `--figure-dpi <N>` | Snapshot render resolution, default `200` |
 | `--figure-padding <PTS>` | Padding around detected figure regions, default `8.0` |
@@ -104,6 +105,8 @@ Useful conversion flags:
 | `--formulas auto|local|hybrid|off` | Detect, audit, or route formula candidates |
 | `--debug-formulas` | Write formula candidate JSON and crops under `debug/formulas/` |
 | `--formula-sidecar <SIDECAR>` | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
+| `--formula-sidecar-timeout-secs <N>` | Timeout for each formula sidecar crop attempt; default `30` |
+| `--formula-emit conservative|auto|all|none` | Control whether detected/recovered formulas are emitted as Markdown math |
 | `--ocr off|auto|force` | Run optional local OCR preprocessing |
 | `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
 | `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
@@ -143,20 +146,36 @@ pdfp convert paper.pdf -o out/ --figures none
 
 `embedded` mode is fast and preserves the current `images/pageN_imgM.png` behavior, but it only sees raster image objects. `snapshot` mode renders detected page regions to `images/pageN_figM.png`, so it can include vector graphics, labels, legends, axes, and multi-panel figures that are not stored as one embedded image. Snapshot detection is heuristic; use `--debug-figures` when tuning false positives or missed figures. Higher `--figure-dpi` values produce sharper images but increase runtime and output size.
 
+Markdown style profiles:
+
+```sh
+# Default: reader-friendly Markdown. Reflows wrapped PDF lines, normalizes common
+# glyph artefacts, and suppresses formula-review comments without changing selected extraction modes.
+pdfp convert paper.pdf -o out/
+
+# Preserve the older PDF-faithful extraction shape when layout fidelity matters.
+pdfp convert paper.pdf -o out/ --markdown-style faithful
+
+# Audit-friendly Markdown: use review-safe extraction choices.
+pdfp convert standard.pdf -o out/ --markdown-style review --debug-tables --debug-formulas
+```
+
+The default is `clean`, which is the right choice for notes and final Markdown documents. Combine it with `--tables native` when you explicitly want coordinate-derived Markdown tables. Use `faithful` when you want the older layout-preserving behaviour. Use `review` when checking standards, legal, engineering, or formula-heavy PDFs where a wrong reconstruction is worse than a visible fallback.
+
 Conservative mode:
 
 ```sh
-# Review-safe first pass: preserve ambiguous regions instead of guessing.
+# Backwards-compatible review-safe preset: preserve ambiguous regions instead of guessing.
 pdfp convert standard.pdf -o out/ --conservative --debug-tables --debug-formulas
 ```
 
-`--conservative` is a preset for standards and other review-sensitive PDFs. It overrides conversion modes to avoid speculative reconstruction:
+`--conservative` remains available as a preset for standards and other review-sensitive PDFs. It overrides conversion modes to avoid speculative reconstruction:
 
 - figures: embedded assets only, no rendered snapshot candidates
 - tables: fixed-width `layout` blocks instead of inferred Markdown tables
 - formulas: audit mode, no local heuristic `$$` rendering
 
-Use this mode when omissions or wrong reconstructions are more costly than having a review marker or a visually preserved fallback.
+`--markdown-style review` uses the same review-safe effective conversion modes while making the output intent explicit. Use either review path when omissions or wrong reconstructions are more costly than having a review marker or a visually preserved fallback.
 
 Table modes:
 
@@ -190,6 +209,12 @@ pdfp convert standard.pdf -o out/ --formulas local --debug-formulas
 # Recover high-confidence formula crops with a local command.
 pdfp convert standard.pdf -o out/ --formula-sidecar rapid-latex-ocr --debug-formulas
 
+# Audit formula candidates without emitting Markdown math blocks.
+pdfp convert standard.pdf -o out/ --debug-formulas --formula-emit none
+
+# Compare native extraction with available formula providers.
+scripts/formula-eval.sh standard.pdf out/formula-eval
+
 # Recover formula crops with native ONNX OCR in an onnx-ocr build.
 pdfp convert standard.pdf -o out/ --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr --debug-formulas
 
@@ -200,7 +225,7 @@ pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
 pdfp convert standard.pdf -o out/ --formulas off
 ```
 
-PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math, and writes a formula coverage ledger when `--debug-formulas` is enabled. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` sends high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the model directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
+PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math under the default `--formula-emit auto` policy, and writes formula debug artifacts when `--debug-formulas` is enabled. The aggregate baseline report is `debug/formulas/index.json`; it records candidate counts, pages with candidates, emitted formula blocks, review blocks, crop paths, source text, recovered LaTeX, emission reasons, and structured sidecar status. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` sends high-confidence crops to a local command such as `rapid-latex-ocr`; the command receives the crop PNG path and should print LaTeX to stdout. Sidecar attempts record `recovered`, `empty-output`, `timeout`, `command-failed`, or `rejected-by-policy`, with per-candidate timing and stderr/error summaries where available. Use `--formula-sidecar-timeout-secs` for slow commands. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the model directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--formula-emit conservative`, `--formula-emit none`, or `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
 
 To prepare native ONNX OCR:
 
@@ -374,7 +399,7 @@ precision, false-positive counts, and image/figure retention:
 pdfp eval tests/eval_fixtures/
 ```
 
-Each fixture JSON names a PDF and the expected formula count, headings, table
+Each fixture JSON names a PDF and the expected emitted formula count, formula detection count, optional LaTeX snippets, headings, table
 presence/regions, and image/figure expectations for selected pages. Missing PDFs
 are skipped with a clear message, which keeps large local corpora out of the
 repository while preserving the evaluation contract. See

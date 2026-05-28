@@ -4,9 +4,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context;
+use serde::Serialize;
 
 use crate::batch;
-use crate::cli::{self, ConvertArgs, FigureMode, FormulaMode, TableMode};
+use crate::cli::{self, ConvertArgs, FigureMode, FormulaEmitMode, FormulaMode, TableMode};
 use crate::document::types::{
     Bbox, Block, BlockKind, DetectedTable, Document, ImageRef, Page, RawPage, TableRender,
 };
@@ -15,7 +16,10 @@ use crate::figure::{
 };
 use crate::formats;
 use crate::formula::detect::FormulaStatus;
-use crate::formula::ocr::{FormulaSidecar, SubprocessSidecar};
+use crate::formula::geometric::geometric_latex;
+use crate::formula::ocr::{
+    FormulaSidecar, FormulaSidecarAttempt, FormulaSidecarStatus, SubprocessSidecar,
+};
 #[cfg(feature = "onnx-ocr")]
 use crate::formula::ocr_onnx::OnnxFormulaSidecar;
 use crate::formula::{
@@ -107,7 +111,10 @@ fn build_document_from_raw(
 ) -> anyhow::Result<Document> {
     let classifier = Classifier::new_for_document(&raw_pages);
     let furniture_mask = detect_furniture_bboxes(&raw_pages);
-    let formula_sidecar = build_formula_sidecar(args.options.formula_sidecar.as_deref())?;
+    let formula_sidecar = build_formula_sidecar(
+        args.options.formula_sidecar.as_deref(),
+        Duration::from_secs(args.options.formula_sidecar_timeout_secs),
+    )?;
     let table_geometry_doc = mupdf::Document::open(pdf_path).ok();
     let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
     let images_dir = output_dir.join("images");
@@ -132,6 +139,7 @@ fn build_document_from_raw(
     };
 
     let mut pages = Vec::new();
+    let mut formula_records = Vec::new();
     let mut formula_candidate_pages = 0usize;
     let mut formula_candidate_count = 0usize;
     for raw_page in raw_pages {
@@ -140,9 +148,13 @@ fn build_document_from_raw(
             formula_candidate_pages += 1;
             formula_candidate_count += built.formula_candidate_count;
         }
+        formula_records.extend(built.formula_records);
         pages.push(built.page);
     }
     warn_on_formula_candidate_summary(args, formula_candidate_pages, formula_candidate_count);
+    if args.options.debug_formulas || args.options.formula_sidecar.is_some() {
+        write_formula_index(&output_dir, output_base_path, pages.len(), &formula_records)?;
+    }
 
     Ok(Document {
         source_path: pdf_path.to_path_buf(),
@@ -151,15 +163,18 @@ fn build_document_from_raw(
     })
 }
 
-fn build_formula_sidecar(value: Option<&str>) -> anyhow::Result<Option<Box<dyn FormulaSidecar>>> {
+fn build_formula_sidecar(
+    value: Option<&str>,
+    timeout: Duration,
+) -> anyhow::Result<Option<Box<dyn FormulaSidecar>>> {
     let Some(value) = value else {
         return Ok(None);
     };
 
     match cli::parse_formula_sidecar(value)? {
-        cli::FormulaSidecarArg::Command(command) => {
-            Ok(Some(Box::new(SubprocessSidecar::new(command))))
-        }
+        cli::FormulaSidecarArg::Command(command) => Ok(Some(Box::new(
+            SubprocessSidecar::with_timeout(command, timeout),
+        ))),
         #[cfg(feature = "onnx-ocr")]
         cli::FormulaSidecarArg::Onnx(model_dir) => {
             let sidecar = OnnxFormulaSidecar::new(&model_dir).with_context(|| {
@@ -190,6 +205,40 @@ struct PageBuildContext<'a> {
 struct BuiltPage {
     page: Page,
     formula_candidate_count: usize,
+    formula_records: Vec<FormulaReportRecord>,
+}
+
+#[derive(Debug, Serialize)]
+struct FormulaDebugIndex<'a> {
+    schema_version: u8,
+    source_pdf: String,
+    page_count: usize,
+    candidate_count: usize,
+    pages_with_candidates: usize,
+    local_candidate_count: usize,
+    needs_review_count: usize,
+    backend_recovered_count: usize,
+    emitted_count: usize,
+    review_block_count: usize,
+    candidates: &'a [FormulaReportRecord],
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct FormulaReportRecord {
+    page: usize,
+    formula_index: usize,
+    confidence: u8,
+    status: FormulaStatus,
+    backend: Option<String>,
+    emitted: bool,
+    review_block: bool,
+    equation_number: Option<String>,
+    crop_path: Option<String>,
+    source_text: String,
+    latex: Option<String>,
+    sidecar: FormulaSidecarAttempt,
+    emission_reason: String,
+    reason: String,
 }
 
 fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Result<BuiltPage> {
@@ -275,12 +324,19 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     let text_classified = suppress_text_covered_by_furniture(text_classified, furniture_bboxes);
     let text_classified = suppress_text_covered_by_tables(text_classified, &table_candidates);
     let formula_candidate_count = formula_candidates.len();
+    let formula_records = formula_report_records(
+        &formula_candidates,
+        formula_mode,
+        ctx.args.options.effective_render_math(),
+        ctx.args.options.formula_emit,
+    );
     let table_blocks = table_candidates_to_blocks(raw_page.page_num, table_candidates);
     let formula_blocks = formula_candidates_to_blocks(
         raw_page.page_num,
         formula_candidates,
         formula_mode,
-        !ctx.args.options.conservative,
+        ctx.args.options.effective_render_math(),
+        ctx.args.options.formula_emit,
     );
     let text_classified = suppress_text_covered_by_formulas(text_classified, &formula_blocks);
 
@@ -336,6 +392,7 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
             override_markdown: None,
         },
         formula_candidate_count,
+        formula_records,
     })
 }
 
@@ -424,11 +481,54 @@ fn geometry_region_to_table_candidate(
     })
 }
 
+fn formula_report_records(
+    candidates: &[FormulaCandidate],
+    mode: cli::FormulaMode,
+    render_math: bool,
+    emit_mode: FormulaEmitMode,
+) -> Vec<FormulaReportRecord> {
+    candidates
+        .iter()
+        .map(|candidate| {
+            let review_block = is_unresolved_formula_review(candidate);
+            let decision = formula_emission_decision(candidate, mode, render_math, emit_mode);
+            let emitted = !review_block && decision.emit;
+            let latex = if emitted {
+                Some(build_formula_latex(candidate))
+            } else {
+                candidate.latex.clone()
+            };
+
+            FormulaReportRecord {
+                page: candidate.page_num + 1,
+                formula_index: candidate.formula_index + 1,
+                confidence: candidate.confidence,
+                status: candidate.status.clone(),
+                backend: candidate.backend.clone(),
+                emitted,
+                review_block,
+                equation_number: candidate.equation_number.clone(),
+                crop_path: candidate.crop_path.clone(),
+                source_text: candidate.source_text.clone(),
+                latex,
+                sidecar: candidate.sidecar.clone(),
+                emission_reason: if review_block {
+                    "review-block".to_string()
+                } else {
+                    decision.reason
+                },
+                reason: candidate.reason.clone(),
+            }
+        })
+        .collect()
+}
+
 fn formula_candidates_to_blocks(
     page_num: usize,
     candidates: Vec<FormulaCandidate>,
     mode: cli::FormulaMode,
     render_math: bool,
+    emit_mode: FormulaEmitMode,
 ) -> Vec<Block> {
     if matches!(mode, cli::FormulaMode::Off) {
         return Vec::new();
@@ -452,7 +552,7 @@ fn formula_candidates_to_blocks(
                 ));
             }
 
-            if !render_math || !should_emit_formula_candidate(&candidate, mode) {
+            if !formula_emission_decision(&candidate, mode, render_math, emit_mode).emit {
                 return None;
             }
 
@@ -483,15 +583,77 @@ fn is_unresolved_formula_review(candidate: &FormulaCandidate) -> bool {
         && candidate.backend.as_deref() == Some("visual-page-render")
 }
 
-fn should_emit_formula_candidate(candidate: &FormulaCandidate, mode: cli::FormulaMode) -> bool {
+#[derive(Debug, Clone)]
+struct FormulaEmissionDecision {
+    emit: bool,
+    reason: String,
+}
+
+fn formula_emission_decision(
+    candidate: &FormulaCandidate,
+    mode: cli::FormulaMode,
+    render_math: bool,
+    emit_mode: FormulaEmitMode,
+) -> FormulaEmissionDecision {
+    if !render_math {
+        return reject_formula("render-math-disabled");
+    }
+    if matches!(mode, cli::FormulaMode::Off) || matches!(emit_mode, FormulaEmitMode::None) {
+        return reject_formula("formula-emission-disabled");
+    }
     if candidate.latex.is_none() && candidate.source_text.trim().is_empty() {
-        return false;
+        return reject_formula("empty-formula-text");
     }
-    match mode {
-        cli::FormulaMode::Auto => candidate.confidence >= 70,
-        cli::FormulaMode::Local | cli::FormulaMode::Hybrid => true,
-        cli::FormulaMode::Off => false,
+    if has_replacement_or_gibberish_markers(candidate) {
+        return reject_formula("unsafe-source-text");
     }
+    if candidate.latex.is_some() {
+        return emit_formula("sidecar-recovered");
+    }
+
+    match emit_mode {
+        FormulaEmitMode::None => reject_formula("formula-emission-disabled"),
+        FormulaEmitMode::Conservative => {
+            reject_formula("local-heuristic-rejected-by-conservative-policy")
+        }
+        FormulaEmitMode::Auto => match mode {
+            cli::FormulaMode::Auto if candidate.confidence >= 70 => {
+                emit_formula("high-confidence-local-auto")
+            }
+            cli::FormulaMode::Local | cli::FormulaMode::Hybrid => emit_formula("local-mode"),
+            cli::FormulaMode::Auto => reject_formula("low-confidence-local-auto"),
+            cli::FormulaMode::Off => reject_formula("formula-mode-off"),
+        },
+        FormulaEmitMode::All => emit_formula("formula-emit-all"),
+    }
+}
+
+fn emit_formula(reason: &str) -> FormulaEmissionDecision {
+    FormulaEmissionDecision {
+        emit: true,
+        reason: reason.to_string(),
+    }
+}
+
+fn reject_formula(reason: &str) -> FormulaEmissionDecision {
+    FormulaEmissionDecision {
+        emit: false,
+        reason: reason.to_string(),
+    }
+}
+
+fn has_replacement_or_gibberish_markers(candidate: &FormulaCandidate) -> bool {
+    let text = candidate.source_text.trim();
+    text.contains('�')
+        || text.matches('?').count() >= 3
+        || looks_like_malformed_matrix_fragment(text)
+}
+
+fn looks_like_malformed_matrix_fragment(text: &str) -> bool {
+    let open = text.matches('(').count();
+    let close = text.matches(')').count();
+    let whitespace_runs = text.split_whitespace().count();
+    open >= 2 && close >= 2 && whitespace_runs >= 5 && !text.contains('[') && !text.contains('\\')
 }
 
 fn renumber_formula_candidates(candidates: &mut [FormulaCandidate]) {
@@ -509,7 +671,11 @@ fn build_formula_latex(candidate: &FormulaCandidate) -> String {
                 text = format!("{} \\tag{{{}}}", stripped.trim_end(), tag_inner);
             }
         }
-        unicode_to_latex(&text)
+        if !candidate.words.is_empty() {
+            geometric_latex(&candidate.words, &text, unicode_to_latex)
+        } else {
+            unicode_to_latex(&text)
+        }
     })
 }
 
@@ -620,6 +786,62 @@ fn write_figure_debug(
         .with_context(|| format!("Failed to write figure debug {}", path.display()))
 }
 
+fn write_formula_index(
+    output_dir: &Path,
+    source_pdf: &Path,
+    page_count: usize,
+    candidates: &[FormulaReportRecord],
+) -> anyhow::Result<()> {
+    let debug_dir = output_dir.join("debug").join("formulas");
+    std::fs::create_dir_all(&debug_dir)
+        .with_context(|| format!("Failed to create formula debug dir {}", debug_dir.display()))?;
+
+    let pages_with_candidates = candidates
+        .iter()
+        .map(|candidate| candidate.page)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let local_candidate_count = candidates
+        .iter()
+        .filter(|candidate| matches!(candidate.status, FormulaStatus::LocalCandidate))
+        .count();
+    let needs_review_count = candidates
+        .iter()
+        .filter(|candidate| matches!(candidate.status, FormulaStatus::NeedsReview))
+        .count();
+    let backend_recovered_count = candidates
+        .iter()
+        .filter(|candidate| matches!(candidate.status, FormulaStatus::BackendRecovered))
+        .count();
+    let emitted_count = candidates
+        .iter()
+        .filter(|candidate| candidate.emitted)
+        .count();
+    let review_block_count = candidates
+        .iter()
+        .filter(|candidate| candidate.review_block)
+        .count();
+
+    let index = FormulaDebugIndex {
+        schema_version: 1,
+        source_pdf: source_pdf.display().to_string(),
+        page_count,
+        candidate_count: candidates.len(),
+        pages_with_candidates,
+        local_candidate_count,
+        needs_review_count,
+        backend_recovered_count,
+        emitted_count,
+        review_block_count,
+        candidates,
+    };
+
+    let path = debug_dir.join("index.json");
+    let json = serde_json::to_string_pretty(&index)?;
+    std::fs::write(&path, json)
+        .with_context(|| format!("Failed to write formula index {}", path.display()))
+}
+
 fn write_formula_debug(
     pdf_path: &Path,
     output_dir: &Path,
@@ -660,11 +882,17 @@ fn write_formula_debug(
                 candidate.crop_path = Some(format!("debug/formulas/{filename}"));
                 if let Some(sidecar) = sidecar {
                     if should_send_to_formula_sidecar(candidate) {
-                        candidate.latex = sidecar.recognize(&abs_path);
-                        if candidate.latex.is_some() {
+                        let attempt = sidecar.recognize(&abs_path);
+                        if matches!(attempt.status, FormulaSidecarStatus::Recovered) {
+                            candidate.latex = attempt.latex.clone();
                             candidate.status = FormulaStatus::BackendRecovered;
-                            candidate.backend = Some("formula-sidecar".to_string());
+                            candidate.backend = attempt.backend.clone();
                         }
+                        candidate.sidecar = attempt;
+                    } else {
+                        candidate.sidecar = FormulaSidecarAttempt::rejected_by_policy(
+                            "candidate below sidecar confidence threshold",
+                        );
                     }
                 }
             }
@@ -822,7 +1050,11 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
 
 fn write_document(doc: &Document, input_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
     let output_dir = batch::output_dir_for(input_path, args.options.output.as_deref());
-    let renderer = MarkdownRenderer::new(!args.options.no_images, Some(output_dir.join("images")));
+    let renderer = MarkdownRenderer::with_style(
+        !args.options.no_images,
+        Some(output_dir.join("images")),
+        args.options.effective_markdown_style(),
+    );
     let rendered = renderer
         .render_document(doc)
         .with_context(|| "Failed to render markdown")?;
@@ -853,6 +1085,8 @@ mod tests {
             status: FormulaStatus::LocalCandidate,
             backend: None,
             latex: None,
+            words: Vec::new(),
+            sidecar: FormulaSidecarAttempt::not_attempted(),
             reason: "test".into(),
             crop_path: None,
         }
@@ -863,11 +1097,71 @@ mod tests {
         let high = formula_candidate("E = mc^2", 70);
         let low = formula_candidate("a + b", 69);
 
-        let blocks = formula_candidates_to_blocks(0, vec![high, low], FormulaMode::Auto, true);
+        let blocks = formula_candidates_to_blocks(
+            0,
+            vec![high, low],
+            FormulaMode::Auto,
+            true,
+            FormulaEmitMode::Auto,
+        );
 
         assert_eq!(blocks.len(), 1);
         assert!(matches!(blocks[0].kind, BlockKind::Formula { .. }));
         assert_eq!(blocks[0].text, "E = mc^2");
+    }
+
+    #[test]
+    fn auto_policy_rejects_replacement_character_formula_text() {
+        let candidate = formula_candidate("E = � + ???", 90);
+
+        let blocks = formula_candidates_to_blocks(
+            0,
+            vec![candidate],
+            FormulaMode::Auto,
+            true,
+            FormulaEmitMode::Auto,
+        );
+
+        assert!(
+            blocks.is_empty(),
+            "unsafe local formula text should not emit"
+        );
+    }
+
+    #[test]
+    fn auto_policy_rejects_malformed_matrix_like_fragments() {
+        let candidate = formula_candidate("(1 2 4)(𝑥 𝑦) = ( 11) 5", 90);
+
+        let blocks = formula_candidates_to_blocks(
+            0,
+            vec![candidate],
+            FormulaMode::Auto,
+            true,
+            FormulaEmitMode::Auto,
+        );
+
+        assert!(
+            blocks.is_empty(),
+            "malformed matrix fragments should not emit"
+        );
+    }
+
+    #[test]
+    fn conservative_policy_rejects_local_heuristic_formula_text() {
+        let candidate = formula_candidate("E = mc^2", 90);
+
+        let blocks = formula_candidates_to_blocks(
+            0,
+            vec![candidate],
+            FormulaMode::Auto,
+            true,
+            FormulaEmitMode::Conservative,
+        );
+
+        assert!(
+            blocks.is_empty(),
+            "conservative policy requires recovered LaTeX"
+        );
     }
 
     #[test]
@@ -895,7 +1189,13 @@ mod tests {
         candidate.reason = "visual-isolated-equation-band+cue:Hence:".into();
         candidate.crop_path = Some("debug/formulas/page1_formula1.png".into());
 
-        let blocks = formula_candidates_to_blocks(0, vec![candidate], FormulaMode::Auto, false);
+        let blocks = formula_candidates_to_blocks(
+            0,
+            vec![candidate],
+            FormulaMode::Auto,
+            false,
+            FormulaEmitMode::Auto,
+        );
 
         assert_eq!(blocks.len(), 1);
         match &blocks[0].kind {

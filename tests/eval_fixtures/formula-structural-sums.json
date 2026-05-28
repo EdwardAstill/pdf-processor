@@ -1,0 +1,14 @@
+{
+  "pdf": "formula_corpus/structural/sums.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 1,
+      "expected_formula_detection_count": 1,
+      "expected_formula_latex_snippets": [],
+      "formula_false_positive_budget": 0,
+      "expected_headings": [],
+      "expected_tables": 0
+    }
+  ]
+}

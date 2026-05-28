@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+mod clean;
+
+use self::clean::clean_markdown;
+
 use crate::document::types::{Block, BlockKind, Document, ExtractedImage, Page, Section};
 use crate::error::PdfpResult;
 use crate::layout::table_inference::detect_structured_region;
@@ -26,18 +30,47 @@ pub struct RenderedDocument {
     pub source_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownStyle {
+    /// Keep current PDF-faithful extraction output.
+    Faithful,
+    /// Produce reader-friendly Markdown by normalizing PDF layout artefacts.
+    Clean,
+    /// Prefer audit-safe output with conservative extraction choices.
+    Review,
+}
+
 pub struct MarkdownRenderer {
     /// Whether to extract images to disk. False = skip image extraction.
     pub extract_images: bool,
     /// Directory to write extracted images into (e.g. `output/images/`).
     pub image_output_dir: Option<PathBuf>,
+    /// Markdown output style applied after block rendering.
+    pub markdown_style: MarkdownStyle,
 }
 
 impl MarkdownRenderer {
     pub fn new(extract_images: bool, image_output_dir: Option<PathBuf>) -> Self {
+        Self::clean(extract_images, image_output_dir)
+    }
+
+    pub fn clean(extract_images: bool, image_output_dir: Option<PathBuf>) -> Self {
+        Self::with_style(extract_images, image_output_dir, MarkdownStyle::Clean)
+    }
+
+    pub fn faithful(extract_images: bool, image_output_dir: Option<PathBuf>) -> Self {
+        Self::with_style(extract_images, image_output_dir, MarkdownStyle::Faithful)
+    }
+
+    pub fn with_style(
+        extract_images: bool,
+        image_output_dir: Option<PathBuf>,
+        markdown_style: MarkdownStyle,
+    ) -> Self {
         Self {
             extract_images,
             image_output_dir,
+            markdown_style,
         }
     }
 
@@ -52,6 +85,10 @@ impl MarkdownRenderer {
                 self.render_page(page, &render_ctx, &doc.source_path, &mut image_counter)?;
             all_markdown.push_str(&page_md);
             all_images.append(&mut page_images);
+        }
+
+        if matches!(self.markdown_style, MarkdownStyle::Clean) {
+            all_markdown = clean_markdown(&all_markdown);
         }
 
         let sections = split_into_sections(&all_markdown, doc);
