@@ -15,7 +15,7 @@ use std::sync::Mutex;
 const PAD_ID: i64 = 0;
 const BOS_ID: i64 = 1;
 const EOS_ID: i64 = 2;
-const MAX_DECODE_STEPS: usize = 512;
+const MAX_DECODE_STEPS: usize = 256;
 const MODEL_HEIGHT: u32 = 192;
 const MODEL_WIDTH: u32 = 672;
 
@@ -115,16 +115,19 @@ impl OnnxFormulaSidecar {
             .lock()
             .expect("ONNX decoder mutex poisoned");
 
+        // Pre-allocate context tensor once — it never changes per crop
+        let context_tensor =
+            Tensor::from_array(memory).context("failed to create context tensor")?;
+
         for _ in 0..MAX_DECODE_STEPS {
             let seq_len = token_ids.len();
             let ids_array = Array2::from_shape_vec((1, seq_len), token_ids.clone())
                 .context("failed to build decoder token tensor")?;
             let ids = Tensor::from_array(ids_array)?;
-            // Causal mask: lower-triangular false (no masking needed for greedy decoding)
             let mask_array = Array2::<bool>::from_elem((seq_len, seq_len), false);
             let mask = Tensor::from_array(mask_array)?;
-            let memory_tensor = Tensor::from_array(memory.clone())?;
-            let outputs = decoder.run(ort::inputs![ids, mask, memory_tensor])?;
+            let outputs = decoder
+                .run(ort::inputs!["x" => ids, "mask" => mask, "context" => &context_tensor])?;
             let logits = outputs[0]
                 .try_extract_array::<f32>()
                 .context("decoder output was not a float tensor")?;
