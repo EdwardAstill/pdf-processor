@@ -18,6 +18,7 @@ pub fn run(command: AppCommand) -> anyhow::Result<()> {
         AppCommand::Pages(args) => processor::pages::run(&args),
         AppCommand::Impose(args) => processor::impose::run(&args),
         AppCommand::Page(args) => processor::resize::run(&args),
+        AppCommand::Update(args) => processor::update::run(&args),
     }
 }
 

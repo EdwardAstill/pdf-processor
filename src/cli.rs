@@ -40,6 +40,8 @@ pub enum Command {
     Impose(ImposeCommand),
     /// Page-level geometry operations
     Page(PageCommand),
+    /// Update pdfp to the latest GitHub release
+    Update(UpdateArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -513,6 +515,17 @@ pub enum PageSubcommand {
 }
 
 #[derive(Args, Debug)]
+pub struct UpdateArgs {
+    /// Just check for a newer version; don't install
+    #[arg(long)]
+    pub check: bool,
+
+    /// Force reinstall even if the same version
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct ResizeArgs {
     /// Input PDF
     pub input: PathBuf,
@@ -561,6 +574,7 @@ impl Cli {
             Some(Command::Pages(args)) => Ok(AppCommand::Pages(args)),
             Some(Command::Impose(args)) => Ok(AppCommand::Impose(args)),
             Some(Command::Page(args)) => Ok(AppCommand::Page(args)),
+            Some(Command::Update(args)) => Ok(AppCommand::Update(args)),
             None => {
                 let input = self.input.ok_or_else(|| {
                     anyhow::anyhow!(
@@ -588,6 +602,7 @@ pub enum AppCommand {
     Pages(PagesCommand),
     Impose(ImposeCommand),
     Page(PageCommand),
+    Update(UpdateArgs),
 }
 
 #[derive(Args, Debug, Clone)]

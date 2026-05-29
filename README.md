@@ -65,6 +65,24 @@ To build from source, install `clang`/`libclang` and run:
 cargo build --release --bin pdfp
 ```
 
+To update an existing installation to the latest release:
+
+```sh
+pdfp update
+```
+
+Use `--check` to see if a newer version is available without downloading:
+
+```sh
+pdfp update --check
+```
+
+Use `--force` to reinstall the same version (e.g., if files were corrupted):
+
+```sh
+pdfp update --force
+```
+
 ## Usage
 
 `pdf-processor` is a CLI tool. The installed command is `pdfp`.
@@ -81,6 +99,7 @@ pdfp eval <FIXTURES_DIR>
 pdfp pages <extract|delete|split|reorder|merge|rotate> ...
 pdfp impose <2up|booklet> ...
 pdfp page <resize|crop> <INPUT> -o <OUTPUT>
+pdfp update [--check] [--force]
 ```
 
 Bare `pdfp <INPUT>` remains a backwards-compatible alias for `pdfp convert <INPUT>`.
