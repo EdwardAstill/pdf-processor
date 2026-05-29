@@ -1,6 +1,6 @@
 [package]
 name = "pdf-processor"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "Local PDF processor with markdown conversion, inspection, search, and page operations"
 license = "MIT"
