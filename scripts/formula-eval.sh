@@ -43,7 +43,7 @@ run_provider() {
 		return $?
 		;;
 	rapid-latex-ocr | sidecar)
-		local cmd="${PDFP_FORMULA_EVAL_SIDECAR_COMMAND:-rapid-latex-ocr}"
+		local cmd="${PDFP_FORMULA_EVAL_SIDECAR_COMMAND:-rapid_latex_ocr}"
 		if ! command_available "$cmd"; then
 			record_skip "$provider" "$dest" "unavailable command: $cmd"
 			return 0

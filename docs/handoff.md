@@ -8,6 +8,61 @@ GPU execution provider.
 
 ---
 
+## Update (2026-05-29)
+
+Continued RapidLaTeXOCR production-path evaluation.
+
+Implemented:
+
+- Formula sidecar recovery now has an **output-sanity gate** that rejects
+  recovered LaTeX with excessive backslash density, repeated delimiter noise,
+  overlong output for small crops, text-heavy OCR not matching source, or
+  excessive accent-stacking. Sanity status is recorded in
+  `debug/formulas/index.json` as `sanity: \"passed\"` or
+  `sanity: \"rejected:bad-output\"`.
+- Added `FormulaSidecarAttempt.sanity` field for structured audit.
+- Created `tests/eval_fixtures/formula-attention.json` — a labelled formula
+  evaluation fixture for `attention.pdf` with per-page expected formula counts
+  and LaTeX snippet expectations.
+- Formula sidecar routing rejects obvious prose/table/range candidates before
+  OCR, while preserving numbered and compact formulas.
+- Broad ambiguous visual-only bands are kept as review crops.
+- `scripts/formula-eval.sh` defaults to the correct `rapid_latex_ocr` executable.
+
+Evaluation snapshots:
+
+| Source | Native | RapidLaTeXOCR sidecar |
+|---|---:|---:|
+| `example/pdf/attention.pdf` | 78 candidates, 19 emitted | 6 attempted, 6 recovered, avg 1.15s |
+| DNV pages 130/389/597/670/675 sample | 35 candidates, 14 emitted | 3 attempted, 3 recovered, avg 579ms |
+| Full DNV-ST-N001 (699 pages) | 3207 candidates, 1124 emitted, 41 review | 28 attempted, 28 recovered, avg 2.07s, p50 380ms, p90 8.0s, max 13.7s |
+
+Findings:
+
+- Persistent worker fixes the process-startup problem: the full DNV run
+  completed in about 229s.
+- The sidecar policy now suppresses many false-positive prose/table/range crops
+  and broad DNV visual-only crops. The known wide DNV visual crop remains
+  present as a review block with `rejected-by-policy` reason
+  `visual-only crop too wide or ambiguous for sidecar OCR`.
+- Full-DNV quality is still mixed. Good compact recoveries include simple
+  relations such as `FSD<MBL/γsf`, `γm = 1.15/0.85/0.9 = 1.5`, and `Rpad=...`.
+  Remaining weak cases include a few visual-only crops and compact standards
+  formulas where OCR garbles symbols despite successful recovery status.
+- Subprocess RapidLaTeXOCR is practical as an opt-in recovery path for selected
+  compact crops, but not yet reliable enough to be the default standards-grade
+  formula extractor. Native ONNX remains secondary unless the `ort` performance
+  issue is solved.
+
+Recommended next work:
+
+1. Rebuild the persistent RapidLaTeXOCR worker that was lost during restoration.
+2. Expand the labelled eval corpus to cover more PDF types (structured formulas,
+   scanned formulas, standards-style mixed content).
+3. Add `pdfp eval` formula snippet matching to track LaTeX recovery quality.
+4. Keep native ONNX experimental; use `rapid_latex_ocr` subprocess sidecar as
+   the opt-in quality path for compact equations.
+
 ## This session (2026-05-28)
 
 Three commits:

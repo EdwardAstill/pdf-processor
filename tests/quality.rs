@@ -281,6 +281,10 @@ fn formula_eval_harness_runs_with_no_optional_providers() {
             "native rapid-latex-ocr docling onnx",
         )
         .env("PDFP_FORMULA_EVAL_DOCLING_URL", "http://127.0.0.1:9")
+        .env(
+            "PDFP_FORMULA_EVAL_SIDECAR_COMMAND",
+            "pdfp-missing-rapid-latex-ocr",
+        )
         .output()
         .expect("formula eval script should be runnable with bash");
 

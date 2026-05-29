@@ -1,0 +1,19 @@
+{
+  "pdf": "../../example/pdf/attention.pdf",
+  "pages": [
+    {
+      "page": 5,
+      "expected_formula_count": 3,
+      "expected_formula_detection_count": 10,
+      "expected_formula_latex_snippets": ["softmax", "QKT", "FFN(x) = max(0, xW1)"],
+      "formula_false_positive_budget": 3
+    },
+    {
+      "page": 7,
+      "expected_formula_count": 2,
+      "expected_formula_detection_count": 10,
+      "expected_formula_latex_snippets": ["lrate", "d−0.5", "warmup"],
+      "formula_false_positive_budget": 3
+    }
+  ]
+}

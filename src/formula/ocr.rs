@@ -29,6 +29,8 @@ pub struct FormulaSidecarAttempt {
     pub duration_ms: Option<u64>,
     pub stderr: Option<String>,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sanity: Option<String>,
 }
 
 impl FormulaSidecarAttempt {
@@ -40,6 +42,7 @@ impl FormulaSidecarAttempt {
             duration_ms: None,
             stderr: None,
             error: None,
+            sanity: None,
         }
     }
 
@@ -51,6 +54,7 @@ impl FormulaSidecarAttempt {
             duration_ms: None,
             stderr: None,
             error: Some(reason.into()),
+            sanity: None,
         }
     }
 }
@@ -100,6 +104,7 @@ impl FormulaSidecar for SubprocessSidecar {
                     duration_ms: Some(elapsed_ms(start)),
                     stderr: None,
                     error: Some(err.to_string()),
+                    sanity: None,
                 };
             }
         };
@@ -116,6 +121,7 @@ impl FormulaSidecar for SubprocessSidecar {
                     duration_ms: Some(elapsed_ms(start)),
                     stderr: Some(stderr_summary(&stderr)).filter(|stderr| !stderr.is_empty()),
                     error: Some(format!("timed out after {}ms", self.timeout.as_millis())),
+                    sanity: None,
                 };
             }
 
@@ -131,6 +137,7 @@ impl FormulaSidecar for SubprocessSidecar {
                         duration_ms: Some(elapsed_ms(start)),
                         stderr: None,
                         error: Some(err.to_string()),
+                        sanity: None,
                     };
                 }
             }
@@ -152,6 +159,7 @@ fn finish_subprocess_attempt(
             duration_ms: Some(elapsed_ms(start)),
             stderr: Some(stderr_summary(&stderr_bytes)).filter(|stderr| !stderr.is_empty()),
             error: Some(format!("exit status {status}")),
+            sanity: None,
         };
     }
 
@@ -165,6 +173,7 @@ fn finish_subprocess_attempt(
                 duration_ms: Some(elapsed_ms(start)),
                 stderr: Some(stderr_summary(&stderr_bytes)).filter(|stderr| !stderr.is_empty()),
                 error: Some(err.to_string()),
+                sanity: None,
             };
         }
     };
@@ -177,6 +186,7 @@ fn finish_subprocess_attempt(
             duration_ms: Some(elapsed_ms(start)),
             stderr: Some(stderr_summary(&stderr_bytes)).filter(|stderr| !stderr.is_empty()),
             error: None,
+            sanity: None,
         }
     } else {
         FormulaSidecarAttempt {
@@ -186,6 +196,7 @@ fn finish_subprocess_attempt(
             duration_ms: Some(elapsed_ms(start)),
             stderr: Some(stderr_summary(&stderr_bytes)).filter(|stderr| !stderr.is_empty()),
             error: None,
+            sanity: None,
         }
     }
 }

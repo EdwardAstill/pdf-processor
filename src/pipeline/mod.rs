@@ -237,6 +237,7 @@ struct FormulaReportRecord {
     source_text: String,
     latex: Option<String>,
     sidecar: FormulaSidecarAttempt,
+    sanity: Option<String>,
     emission_reason: String,
     reason: String,
 }
@@ -499,6 +500,14 @@ fn formula_report_records(
                 candidate.latex.clone()
             };
 
+            let sanity = if candidate.latex.is_some()
+                && matches!(candidate.status, FormulaStatus::BackendRecovered)
+            {
+                Some("passed".to_string())
+            } else {
+                candidate.sidecar.sanity.clone()
+            };
+
             FormulaReportRecord {
                 page: candidate.page_num + 1,
                 formula_index: candidate.formula_index + 1,
@@ -512,6 +521,7 @@ fn formula_report_records(
                 source_text: candidate.source_text.clone(),
                 latex,
                 sidecar: candidate.sidecar.clone(),
+                sanity,
                 emission_reason: if review_block {
                     "review-block".to_string()
                 } else {
@@ -884,15 +894,21 @@ fn write_formula_debug(
                     if should_send_to_formula_sidecar(candidate) {
                         let attempt = sidecar.recognize(&abs_path);
                         if matches!(attempt.status, FormulaSidecarStatus::Recovered) {
-                            candidate.latex = attempt.latex.clone();
-                            candidate.status = FormulaStatus::BackendRecovered;
-                            candidate.backend = attempt.backend.clone();
+                            let latex = attempt.latex.as_deref().unwrap_or("");
+                            if recovered_latex_is_sane(latex, candidate) {
+                                candidate.latex = attempt.latex.clone();
+                                candidate.status = FormulaStatus::BackendRecovered;
+                                candidate.backend = attempt.backend.clone();
+                                candidate.sidecar.sanity = Some("passed".into());
+                            } else {
+                                candidate.sidecar.sanity = Some("rejected:bad-output".into());
+                            }
                         }
                         candidate.sidecar = attempt;
                     } else {
-                        candidate.sidecar = FormulaSidecarAttempt::rejected_by_policy(
-                            "candidate below sidecar confidence or status threshold",
-                        );
+                        let reason = formula_sidecar_rejection_reason(candidate)
+                            .unwrap_or("candidate rejected by sidecar policy");
+                        candidate.sidecar = FormulaSidecarAttempt::rejected_by_policy(reason);
                     }
                 }
             }
@@ -910,7 +926,317 @@ fn write_formula_debug(
 }
 
 fn should_send_to_formula_sidecar(candidate: &FormulaCandidate) -> bool {
-    candidate.confidence >= 65
+    formula_sidecar_rejection_reason(candidate).is_none()
+}
+
+fn formula_sidecar_rejection_reason(candidate: &FormulaCandidate) -> Option<&'static str> {
+    if candidate.confidence < 65 {
+        return Some("candidate below sidecar confidence threshold");
+    }
+
+    if is_visual_only_formula_candidate(candidate) {
+        if visual_candidate_is_ocr_friendly(candidate) {
+            return None;
+        }
+        return Some("visual-only crop too wide or ambiguous for sidecar OCR");
+    }
+
+    let text = candidate.source_text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if text.contains("<EOS>") || text.contains("<pad>") {
+        return Some("candidate contains model-special prose tokens");
+    }
+    if candidate.equation_number.is_some() {
+        return None;
+    }
+
+    let word_count = text.split_whitespace().count();
+    let relation_count = text
+        .chars()
+        .filter(|c| matches!(c, '=' | '<' | '>' | '≤' | '≥'))
+        .count();
+    if relation_count == 0 {
+        return Some("candidate has no formula relation operator");
+    }
+    if word_count > 14 {
+        return Some("candidate has too many words for sidecar OCR");
+    }
+    if looks_like_definition_line(text) {
+        return Some("candidate looks like a variable definition line");
+    }
+    if looks_like_table_range_comparison(text, relation_count) {
+        return Some("candidate looks like a table/range comparison");
+    }
+    if looks_like_standards_table_or_prose_line(text) {
+        return Some("candidate looks like standards table/prose content");
+    }
+
+    let stopword_count = text
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|word| {
+            matches!(
+                word.to_ascii_lowercase().as_str(),
+                "the"
+                    | "and"
+                    | "or"
+                    | "of"
+                    | "to"
+                    | "in"
+                    | "we"
+                    | "with"
+                    | "for"
+                    | "by"
+                    | "is"
+                    | "are"
+                    | "this"
+                    | "that"
+                    | "as"
+                    | "on"
+                    | "from"
+                    | "at"
+                    | "be"
+                    | "all"
+                    | "used"
+                    | "using"
+                    | "have"
+                    | "has"
+            )
+        })
+        .count();
+    if word_count >= 10 && stopword_count >= 3 && relation_count <= 1 {
+        return Some("candidate looks like prose with an inline relation");
+    }
+
+    let math_score = text
+        .chars()
+        .filter(|c| {
+            matches!(
+                c,
+                '=' | '+'
+                    | '−'
+                    | '-'
+                    | '×'
+                    | '*'
+                    | '/'
+                    | '÷'
+                    | '<'
+                    | '>'
+                    | '≤'
+                    | '≥'
+                    | '√'
+                    | '∑'
+                    | '∫'
+                    | '∂'
+                    | '∆'
+                    | 'Δ'
+                    | 'π'
+                    | 'μ'
+                    | 'σ'
+                    | 'τ'
+                    | 'γ'
+                    | 'α'
+                    | 'β'
+                    | 'θ'
+                    | 'λ'
+                    | 'φ'
+                    | 'Ω'
+                    | '^'
+                    | '_'
+            )
+        })
+        .count();
+
+    if relation_count >= 2 || math_score >= 3 || (candidate.confidence >= 85 && word_count <= 10) {
+        None
+    } else {
+        Some("candidate below sidecar math-content threshold")
+    }
+}
+
+fn is_visual_only_formula_candidate(candidate: &FormulaCandidate) -> bool {
+    candidate.source_text.trim().is_empty()
+        || candidate.backend.as_deref() == Some("visual-page-render")
+        || candidate.reason.contains("visual-isolated-equation-band")
+}
+
+fn visual_candidate_is_ocr_friendly(candidate: &FormulaCandidate) -> bool {
+    let width = candidate.bbox.x1 - candidate.bbox.x0;
+    let height = candidate.bbox.y1 - candidate.bbox.y0;
+    if width <= 0.0 || height <= 0.0 {
+        return false;
+    }
+
+    let aspect_ratio = width / height;
+    if aspect_ratio > 24.0 {
+        return false;
+    }
+
+    let broad_horizontal_band = width > 420.0
+        && (candidate.source_text.trim().is_empty()
+            || candidate.reason.contains("horizontal-rule"));
+    !broad_horizontal_band
+}
+
+fn looks_like_definition_line(text: &str) -> bool {
+    let Some((_, rhs)) = text.split_once('=') else {
+        return false;
+    };
+    let rhs_word_count = rhs.split_whitespace().count();
+    if rhs_word_count < 4 {
+        return false;
+    }
+    let rhs_lower = rhs.to_ascii_lowercase();
+    let definition_terms = [
+        "angle",
+        "factor",
+        "including",
+        "margin",
+        "object",
+        "plates",
+        "sling",
+        "table",
+        "thickness",
+        "weight",
+    ];
+    definition_terms.iter().any(|term| rhs_lower.contains(term))
+}
+
+fn looks_like_table_range_comparison(text: &str, relation_count: usize) -> bool {
+    !text.contains('=') && relation_count >= 2 && text.split_whitespace().count() >= 4
+}
+
+fn recovered_latex_is_sane(latex: &str, candidate: &FormulaCandidate) -> bool {
+    if latex.is_empty() {
+        return false;
+    }
+
+    let height = (candidate.bbox.y1 - candidate.bbox.y0).max(1.0);
+    let width = (candidate.bbox.x1 - candidate.bbox.x0).max(1.0);
+    let _expected_chars = (height * width / 100.0) as usize;
+
+    // 1. Excessive backslash density: more than ~8 per height-point
+    let backslash_count = latex.matches('\\').count();
+    if backslash_count > (height as usize) * 8 && latex.len() > 50 {
+        return false;
+    }
+
+    // 2. Repeated delimiter noise patterns
+    let repeated_left = latex.matches("\\left|").count() + latex.matches("\\left\\|").count();
+    let _repeated_array = latex.matches("\\begin{array}").count();
+    if repeated_left > 3 && latex.len() > 100 {
+        return false;
+    }
+
+    // 3. Overlong LaTeX for a small crop (more than 50 chars per point of height)
+    if latex.len() > (height as usize) * 50 && width < 500.0 {
+        return false;
+    }
+
+    // 4. Text-heavy recovered LaTeX with long English words not in source
+    if !candidate.source_text.trim().is_empty() {
+        let source_lower = candidate.source_text.to_ascii_lowercase();
+        let latex_lower = latex.to_ascii_lowercase();
+        let long_words_in_latex: Vec<&str> = latex_lower
+            .split_whitespace()
+            .filter(|w| w.len() > 8 && w.chars().all(|c| c.is_ascii_alphabetic()))
+            .collect();
+        let unexpected_long_words = long_words_in_latex
+            .iter()
+            .filter(|w| !source_lower.contains(*w))
+            .count();
+        if unexpected_long_words >= 3 {
+            return false;
+        }
+    }
+
+    // 5. Excessive `\\stackrel`/`\\overset` stacking
+    let stack_count = latex.matches("\\stackrel").count()
+        + latex.matches("\\overset").count()
+        + latex.matches("\\widetilde").count()
+        + latex.matches("\\widehat").count();
+    if stack_count > 5 && source_text_length(candidate) < 30 {
+        return false;
+    }
+
+    true
+}
+
+fn source_text_length(candidate: &FormulaCandidate) -> usize {
+    candidate.source_text.trim().len()
+}
+
+fn looks_like_standards_table_or_prose_line(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let phrase_terms = [
+        "defined as",
+        "environmental criteria",
+        "heading in degrees",
+        "linear wave theory",
+        "minimum required",
+        "minimum tipping angle",
+        "not applicable",
+        "operational criteria",
+        "seafastening force",
+        "significant wave",
+        "solitary wave theory",
+        "upper bound",
+        "wave period",
+    ];
+    if phrase_terms.iter().any(|term| lower.contains(term)) {
+        return true;
+    }
+
+    let high_risk_single_terms = [
+        "acceleration",
+        "equation",
+        "month",
+        "n/a",
+        "return",
+        "see [",
+        "tonnes",
+        "year",
+    ];
+    if high_risk_single_terms
+        .iter()
+        .any(|term| lower.contains(term))
+    {
+        return true;
+    }
+
+    let table_terms = [
+        "any",
+        "barge",
+        "bridles",
+        "cargo",
+        "category",
+        "criteria",
+        "days",
+        "derate",
+        "during",
+        "equipment",
+        "height",
+        "hence",
+        "lashing",
+        "links",
+        "load",
+        "objects",
+        "pennants",
+        "plates",
+        "shackles",
+        "sockets",
+        "smys",
+        "towlines",
+        "upend",
+        "vessels",
+        "visual",
+    ];
+    let matches = table_terms
+        .iter()
+        .filter(|term| lower.contains(*term))
+        .count();
+    matches >= 2
 }
 
 fn warn_on_formula_candidate_summary(
@@ -1159,6 +1485,96 @@ mod tests {
         assert!(
             blocks.is_empty(),
             "conservative policy requires recovered LaTeX"
+        );
+    }
+
+    #[test]
+    fn sidecar_policy_skips_prose_like_high_confidence_candidates() {
+        let candidate = formula_candidate(
+            "We used the Adam optimizer with beta1 = 0.9 and beta2 = 0.98 during training",
+            85,
+        );
+
+        assert!(!should_send_to_formula_sidecar(&candidate));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&candidate),
+            Some("candidate has too many words for sidecar OCR")
+        );
+    }
+
+    #[test]
+    fn sidecar_policy_skips_variable_definition_lines() {
+        let candidate = formula_candidate(
+            "γWeight = Unweighed object weight margin factor as per Table 5-2",
+            77,
+        );
+
+        assert!(!should_send_to_formula_sidecar(&candidate));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&candidate),
+            Some("candidate looks like a variable definition line")
+        );
+    }
+
+    #[test]
+    fn sidecar_policy_skips_standards_table_and_prose_lines() {
+        let table = formula_candidate(
+            "Delta plates, master links and shackles <5 years < 12 months",
+            73,
+        );
+        let prose = formula_candidate("h/λ > 0.3 Linear wave theory (or Stokes 5th order)", 77);
+        let range = formula_candidate("1000t ≤ W 5000t ≤ W 20000t ≤", 77);
+
+        assert!(!should_send_to_formula_sidecar(&table));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&table),
+            Some("candidate looks like a table/range comparison")
+        );
+        assert!(!should_send_to_formula_sidecar(&prose));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&prose),
+            Some("candidate looks like standards table/prose content")
+        );
+        assert!(!should_send_to_formula_sidecar(&range));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&range),
+            Some("candidate looks like a table/range comparison")
+        );
+    }
+
+    #[test]
+    fn sidecar_policy_keeps_compact_standards_formulas() {
+        let weight = formula_candidate("WReport, Factored ≤ Wud/γWeight", 87);
+        let padeye = formula_candidate("Rpad= (Rpl × tpl+2 × Rch × tch)/t", 85);
+
+        assert!(should_send_to_formula_sidecar(&weight));
+        assert!(should_send_to_formula_sidecar(&padeye));
+    }
+
+    #[test]
+    fn sidecar_policy_keeps_numbered_and_reasonable_visual_formula_candidates() {
+        let mut numbered = formula_candidate("E = mc^2 (1)", 96);
+        numbered.equation_number = Some("(1)".into());
+        let mut visual = formula_candidate("", 68);
+        visual.bbox = Bbox::new(120.0, 140.0, 420.0, 162.0);
+        visual.backend = Some("visual-page-render".into());
+        visual.reason = "visual-isolated-equation-band+centered".into();
+
+        assert!(should_send_to_formula_sidecar(&numbered));
+        assert!(should_send_to_formula_sidecar(&visual));
+    }
+
+    #[test]
+    fn sidecar_policy_rejects_wide_visual_formula_candidates() {
+        let mut visual = formula_candidate("", 68);
+        visual.bbox = Bbox::new(20.0, 140.0, 510.0, 170.0);
+        visual.backend = Some("visual-page-render".into());
+        visual.reason = "visual-isolated-equation-band+centered+horizontal-rule".into();
+
+        assert!(!should_send_to_formula_sidecar(&visual));
+        assert_eq!(
+            formula_sidecar_rejection_reason(&visual),
+            Some("visual-only crop too wide or ambiguous for sidecar OCR")
         );
     }
 
