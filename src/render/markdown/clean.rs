@@ -65,7 +65,7 @@ impl MarkdownBlock {
     }
 
     fn cleaned_text(&self) -> String {
-        if self.fenced {
+        if self.fenced || self.text.trim_start().starts_with('|') {
             normalize_clean_glyphs(&self.text).trim().to_string()
         } else {
             normalize_clean_text(&self.text)

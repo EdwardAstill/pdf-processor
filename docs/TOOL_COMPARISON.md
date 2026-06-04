@@ -83,6 +83,7 @@ These are the best comparable tools for the current local-first `pdfp` design.
 | Tool | Best comparable role | Where it may beat `pdfp` | Where `pdfp` is stronger |
 | --- | --- | --- | --- |
 | PyMuPDF4LLM | Full deterministic PDF-to-Markdown/RAG export. | Mature MuPDF-backed Markdown, JSON/text outputs, table/image/vector references, page chunks, and optional OCR. | Integrated CLI, eval floors, debug crops/JSON, page ops/search/inspect, formula audit routing. |
+| MarkItDown | Broad multi-format Markdown ingestion with a pragmatic PDF path. | Strong form-style/borderless table handling via global word-position column clustering; broad DOCX/PPTX/XLSX/HTML/image/audio support. | `pdfp` stays PDF-specialized with local Rust deployment, debug/eval artifacts, page ops, formula audit routing, and no Python runtime. |
 | Poppler `pdftotext -layout` | Raw text/layout baseline. | Very mature, fast, simple physical-layout text output; available here now. | No Markdown structure, no table/figure/formula eval, no debug artifacts beyond raw text/bbox modes. |
 | pdfminer.six | Python text/layout extraction baseline. | Detailed layout-analysis object model and command-line text extraction. | `pdfp` has higher-level Markdown, figures, tables, formulas, eval, and CLI workflows. |
 | pdfplumber | Deterministic PDF inspection and table extraction. | Strong visual debugging and table extraction from PDF lines/word alignment. | Broader document pipeline and measured markdown-oriented quality gates. |
@@ -110,6 +111,7 @@ rather than added as project dependencies.
 | --- | --- | --- | --- | --- |
 | `pdfp` | Local Rust CLI | Measured local fixtures, debug JSON/crops, page ops, search, inspect, OCR/hybrid hooks. | Fixture set is still small; no external parity score. | Baseline row; always run first. |
 | PyMuPDF4LLM | Local Python/MuPDF | Markdown export with OCR, images, headers/footers, page chunks, and table strategy options. | External Python dependency; needs local install for direct measurement. | Closest deterministic full-pipeline peer. |
+| MarkItDown | Local Python package/CLI, optional Azure/LLM paths | Very broad file-format ingestion and good form-style PDF table reconstruction. | PDF converter is comparatively shallow for formulas, figures, debug/eval, and page operations; scanned PDF support needs cloud/LLM/OCR plugin paths. | Broad-ingestion comparator and form-table oracle; do not import as a runtime dependency. |
 | Poppler `pdftotext -layout` | Local CLI | Plain-text extraction with physical-layout preservation, bbox, bbox-layout, and TSV modes. | Text only; no Markdown semantics. | Raw text/layout floor. |
 | pdfminer.six | Local Python | Layout analysis and command-line/programmatic text extraction. | Text/layout library, not full Markdown pipeline. | Python layout baseline. |
 | pdfplumber | Local Python | PDF object inspection, visual debugging, table extraction. | Library/tooling layer, not full Markdown pipeline. | Table/debug comparator. |
@@ -163,6 +165,8 @@ rows remain a capability comparison, not a leaderboard.
 - Camelot parser docs: https://camelot-py.readthedocs.io/en/master/user/how-it-works.html
 - Tabula Java README: https://github.com/tabulapdf/tabula-java
 - OCRmyPDF README: https://github.com/ocrmypdf/OCRmyPDF
+- MarkItDown README: https://github.com/microsoft/markitdown
+- MarkItDown PDF converter: https://github.com/microsoft/markitdown/blob/main/packages/markitdown/src/markitdown/converters/_pdf_converter.py
 - Marker README: https://github.com/datalab-to/marker
 - Marker project metadata: https://github.com/datalab-to/marker/blob/master/pyproject.toml
 - MinerU README: https://github.com/opendatalab/MinerU/blob/master/README.md

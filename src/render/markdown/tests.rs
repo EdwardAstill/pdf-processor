@@ -1,5 +1,7 @@
 use super::*;
-use crate::document::types::{Bbox, Block, BlockKind, Document, DocumentMetadata, Page};
+use crate::document::types::{
+    Bbox, Block, BlockKind, DetectedTable, Document, DocumentMetadata, Page, TableRender,
+};
 use crate::layout::table_inference::{
     normalize_numeric_row, strip_leading_list_marker, ParsedNumericRow,
 };
@@ -432,6 +434,41 @@ fn renders_key_value_table_as_field_list() {
     assert!(result.markdown.contains("- Invoice Number: 2020-10"));
     assert!(result.markdown.contains("- Invoice Date: January 8, 2020"));
     assert!(!result.markdown.contains("| --- |"));
+}
+
+#[test]
+fn clean_style_preserves_coordinate_table_line_breaks() {
+    let page = Page {
+        page_num: 0,
+        width: 595.0,
+        height: 842.0,
+        blocks: vec![Block::special(
+            10,
+            Bbox::new(50.0, 50.0, 300.0, 120.0),
+            BlockKind::CoordinateTable {
+                table: DetectedTable {
+                    bbox: Bbox::new(50.0, 50.0, 300.0, 120.0),
+                    rows: vec![
+                        vec!["Name".to_string(), "Age".to_string()],
+                        vec!["Alice".to_string(), "30".to_string()],
+                    ],
+                    confidence: 0.9,
+                    render: TableRender::Markdown,
+                },
+            },
+            0,
+            0.0,
+            "table".to_string(),
+        )],
+        override_markdown: None,
+    };
+    let doc = make_doc(vec![page]);
+    let renderer = MarkdownRenderer::clean(false, None);
+    let result = renderer.render_document(&doc).unwrap();
+
+    assert!(result
+        .markdown
+        .contains("| Name | Age |\n| --- | --- |\n| Alice | 30 |"));
 }
 
 #[test]

@@ -59,6 +59,11 @@ fn numbered_section_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^\s*(\d+(?:\.\d+)*)(?:[.)])?\s+(.+\S)\s*$").unwrap())
 }
 
+fn partial_numbering_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^\.\d+$").unwrap())
+}
+
 /// Detect table cells by finding blocks arranged in a 2D grid.
 /// Uses a region-based text-alignment strategy: identifies candidate table
 /// regions among non-heading/non-caption blocks, then validates each region.
@@ -600,6 +605,7 @@ pub(crate) fn detect_coordinate_tables(
     }
 
     if candidates.is_empty() {
+        candidates.extend(detect_form_column_tables(&rows, page_width, mode));
         candidates.extend(detect_alignment_tables(&rows, page_width, mode));
         candidates.extend(detect_captioned_table_runs(&rows, page_width, mode));
     }
@@ -752,6 +758,310 @@ fn looks_like_header_row(row: &WordRow<'_>) -> bool {
         "bolt",
     ];
     keywords.iter().any(|keyword| text.contains(keyword))
+}
+
+#[derive(Clone, Debug)]
+struct FormRowInfo {
+    x_groups: Vec<f32>,
+    is_table_row: bool,
+    is_prose: bool,
+    has_partial_numbering: bool,
+}
+
+fn detect_form_column_tables(
+    rows: &[WordRow<'_>],
+    page_width: f32,
+    mode: TableMode,
+) -> Vec<TableCandidate> {
+    if rows.len() < 3 || page_width <= 0.0 {
+        return Vec::new();
+    }
+
+    let mut row_info: Vec<FormRowInfo> = rows
+        .iter()
+        .map(|row| {
+            let x_groups = form_row_x_groups(row, 45.0);
+            let is_prose = looks_like_form_prose_row(row, page_width);
+            let has_partial_numbering = row
+                .words
+                .first()
+                .is_some_and(|word| partial_numbering_re().is_match(word.text.trim()));
+            FormRowInfo {
+                x_groups,
+                is_table_row: false,
+                is_prose,
+                has_partial_numbering,
+            }
+        })
+        .collect();
+
+    let mut table_x_positions: Vec<f32> = row_info
+        .iter()
+        .filter(|info| info.x_groups.len() >= 3 && !info.is_prose && !info.has_partial_numbering)
+        .flat_map(|info| info.x_groups.iter().copied())
+        .collect();
+    if table_x_positions.len() < 9 {
+        return Vec::new();
+    }
+
+    let Some(columns) = form_global_columns(&mut table_x_positions, page_width) else {
+        return Vec::new();
+    };
+    if columns.len() < 3 {
+        return Vec::new();
+    }
+
+    for info in &mut row_info {
+        if info.is_prose || info.has_partial_numbering {
+            continue;
+        }
+        let aligned = form_aligned_column_count(&info.x_groups, &columns);
+        info.is_table_row = aligned >= 2;
+    }
+
+    let table_row_count = row_info.iter().filter(|info| info.is_table_row).count();
+    if table_row_count < 3 || table_row_count * 5 < row_info.len() {
+        return Vec::new();
+    }
+
+    let mut candidates = Vec::new();
+    let mut idx = 0usize;
+    while idx < rows.len() {
+        if !row_info[idx].is_table_row {
+            idx += 1;
+            continue;
+        }
+
+        let start = idx;
+        idx += 1;
+        while idx < rows.len() && row_info[idx].is_table_row {
+            let gap = rows[idx].baseline_y - rows[idx - 1].baseline_y;
+            if gap > median_font_size(&rows[idx]).max(median_font_size(&rows[idx - 1])) * 3.4 {
+                break;
+            }
+            idx += 1;
+        }
+        let end = idx;
+        if end - start < 3 {
+            continue;
+        }
+        if let Some(candidate) = build_form_column_table_candidate(
+            &rows[start..end],
+            &row_info[start..end],
+            &columns,
+            page_width,
+            mode,
+        ) {
+            candidates.push(candidate);
+        }
+    }
+
+    candidates
+}
+
+fn form_row_x_groups(row: &WordRow<'_>, gap_threshold: f32) -> Vec<f32> {
+    let mut groups = Vec::new();
+    for word in &row.words {
+        let x = word.bbox.x0;
+        if let Some(last) = groups.last_mut() {
+            if x - *last <= gap_threshold {
+                *last = (*last + x) / 2.0;
+                continue;
+            }
+        }
+        groups.push(x);
+    }
+    groups
+}
+
+fn looks_like_form_prose_row(row: &WordRow<'_>, page_width: f32) -> bool {
+    let text = row_text(row);
+    (row.bbox.width() > page_width * 0.55 && text.chars().count() > 60)
+        || looks_like_prose_table_row(row)
+}
+
+fn form_global_columns(x_positions: &mut [f32], page_width: f32) -> Option<Vec<f32>> {
+    x_positions.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut gaps: Vec<f32> = x_positions
+        .windows(2)
+        .filter_map(|pair| {
+            let gap = pair[1] - pair[0];
+            (gap > 5.0).then_some(gap)
+        })
+        .collect();
+    gaps.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let tolerance = if gaps.len() >= 3 {
+        let idx = ((gaps.len() as f32) * 0.70).floor() as usize;
+        gaps[idx.min(gaps.len() - 1)].clamp(25.0, 50.0)
+    } else {
+        35.0
+    };
+
+    let mut columns: Vec<f32> = Vec::new();
+    let mut current: Vec<f32> = Vec::new();
+    for x in x_positions.iter().copied() {
+        if current.is_empty() {
+            current.push(x);
+            continue;
+        }
+        let mean = current.iter().sum::<f32>() / current.len() as f32;
+        if (x - mean).abs() <= tolerance {
+            current.push(x);
+        } else {
+            columns.push(current.iter().sum::<f32>() / current.len() as f32);
+            current = vec![x];
+        }
+    }
+    if !current.is_empty() {
+        columns.push(current.iter().sum::<f32>() / current.len() as f32);
+    }
+
+    if columns.len() < 3 {
+        return None;
+    }
+    if let (Some(first), Some(last)) = (columns.first(), columns.last()) {
+        let content_width = last - first;
+        if content_width <= 0.0 {
+            return None;
+        }
+        let avg_col_width = content_width / columns.len() as f32;
+        if avg_col_width < 30.0 {
+            return None;
+        }
+        let columns_per_inch = columns.len() as f32 / (content_width / 72.0).max(0.1);
+        if columns_per_inch > 10.0 {
+            return None;
+        }
+    }
+    let adaptive_max = ((20.0 * (page_width / 612.0)).round() as usize).max(15);
+    if columns.len() > adaptive_max {
+        return None;
+    }
+
+    Some(columns)
+}
+
+fn form_aligned_column_count(x_groups: &[f32], columns: &[f32]) -> usize {
+    let mut aligned = std::collections::BTreeSet::new();
+    for x in x_groups {
+        if let Some((idx, distance)) = columns
+            .iter()
+            .enumerate()
+            .map(|(idx, column)| (idx, (*x - *column).abs()))
+            .min_by(|left, right| {
+                left.1
+                    .partial_cmp(&right.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        {
+            if distance <= 40.0 {
+                aligned.insert(idx);
+            }
+        }
+    }
+    aligned.len()
+}
+
+fn build_form_column_table_candidate(
+    rows: &[WordRow<'_>],
+    row_info: &[FormRowInfo],
+    columns: &[f32],
+    page_width: f32,
+    mode: TableMode,
+) -> Option<TableCandidate> {
+    let bbox = rows
+        .iter()
+        .map(|row| row.bbox)
+        .reduce(|bbox, row_bbox| bbox.union(&row_bbox))?;
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| assign_form_row_to_columns(row, columns))
+        .collect();
+    let layout_text = render_layout_text(rows);
+    let evidence = form_table_evidence(rows, row_info, columns.len(), page_width);
+    let confidence = evidence.score().max(0.50);
+    let render = match mode {
+        TableMode::Off => return None,
+        TableMode::Native => TableRender::Markdown,
+        TableMode::Layout => TableRender::Layout { text: layout_text },
+        TableMode::Auto if confidence >= 0.68 && rows.len() >= 3 => TableRender::Markdown,
+        TableMode::Auto => TableRender::Layout { text: layout_text },
+    };
+    let source_block_ids = rows
+        .iter()
+        .flat_map(|row| row.words.iter().map(|word| word.block_id))
+        .collect();
+
+    Some(TableCandidate {
+        table: DetectedTable {
+            bbox,
+            rows: table_rows,
+            confidence,
+            render,
+        },
+        source_block_ids,
+        evidence,
+    })
+}
+
+fn assign_form_row_to_columns(row: &WordRow<'_>, columns: &[f32]) -> Vec<String> {
+    let mut cells = vec![Vec::<String>::new(); columns.len()];
+    for word in &row.words {
+        let col = form_column_for_x(word.bbox.x0, columns);
+        cells[col].push(word.text.trim().to_string());
+    }
+    cells.into_iter().map(|cell| cell.join(" ")).collect()
+}
+
+fn form_column_for_x(x: f32, columns: &[f32]) -> usize {
+    if columns.len() <= 1 {
+        return 0;
+    }
+    for idx in 0..columns.len() - 1 {
+        if x < columns[idx + 1] - 20.0 {
+            return idx;
+        }
+    }
+    columns.len() - 1
+}
+
+fn form_table_evidence(
+    rows: &[WordRow<'_>],
+    row_info: &[FormRowInfo],
+    column_count: usize,
+    page_width: f32,
+) -> TableEvidence {
+    let table_rows = row_info.iter().filter(|info| info.is_table_row).count();
+    let row_consistency = table_rows as f32 / rows.len().max(1) as f32;
+    let numeric_density = rows
+        .iter()
+        .flat_map(|row| row.words.iter())
+        .filter(|word| looks_like_table_value(&word.text))
+        .count() as f32
+        / rows.iter().map(|row| row.words.len()).sum::<usize>().max(1) as f32;
+    let prose_rows = row_info.iter().filter(|info| info.is_prose).count();
+    let width_ratio = rows
+        .iter()
+        .map(|row| row.bbox.width())
+        .fold(0.0f32, f32::max)
+        / page_width.max(1.0);
+    let column_alignment = (row_consistency * 0.55
+        + width_ratio.min(1.0) * 0.20
+        + (column_count as f32 / 6.0).min(1.0) * 0.25)
+        .clamp(0.0, 1.0);
+    TableEvidence {
+        source: TableEvidenceSource::TextAlignment,
+        row_consistency,
+        column_alignment,
+        numeric_density,
+        row_count: rows.len(),
+        ruling_intersections: 0,
+        caption_score: 0.0,
+        broad_page_penalty: 0.0,
+        prose_penalty: prose_rows as f32 / rows.len().max(1) as f32 * 0.30,
+        debug_reasons: vec!["form-column-cluster".to_string()],
+    }
 }
 
 fn detect_alignment_tables(
@@ -1563,5 +1873,88 @@ mod tests {
             }
             other => panic!("expected ambiguous wrapped row to use layout fallback, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn form_column_table_preserves_blank_cells_and_multiword_headers() {
+        let mut words = vec![
+            word_at("Product", 50.0, 0, 42.0),
+            word_at("Code", 94.0, 0, 28.0),
+            word_at("Location", 150.0, 0, 48.0),
+            word_at("Expected", 250.0, 0, 50.0),
+            word_at("Actual", 350.0, 0, 36.0),
+            word_at("Variance", 450.0, 0, 50.0),
+            word_at("Status", 540.0, 0, 38.0),
+            word_at("SKU-8847", 50.0, 1, 58.0),
+            word_at("A-12", 150.0, 1, 28.0),
+            word_at("450", 250.0, 1, 24.0),
+            word_at("B-07", 150.0, 2, 28.0),
+            word_at("289", 350.0, 2, 24.0),
+            word_at("-23", 450.0, 2, 24.0),
+            word_at("SKU-9201", 50.0, 3, 58.0),
+            word_at("780", 250.0, 3, 24.0),
+            word_at("778", 350.0, 3, 24.0),
+            word_at("OK", 540.0, 3, 18.0),
+        ];
+        for (idx, word) in words.iter_mut().enumerate() {
+            word.block_id = idx;
+        }
+
+        let tables = detect_coordinate_tables(&words, 620.0, TableMode::Auto);
+
+        assert_eq!(tables.len(), 1);
+        assert!(matches!(tables[0].table.render, TableRender::Markdown));
+        assert_eq!(
+            tables[0].table.rows[0],
+            vec![
+                "Product Code",
+                "Location",
+                "Expected",
+                "Actual",
+                "Variance",
+                "Status"
+            ]
+        );
+        assert_eq!(
+            tables[0].table.rows[2],
+            vec!["", "B-07", "", "289", "-23", ""]
+        );
+        assert!(tables[0]
+            .evidence
+            .debug_reasons
+            .contains(&"form-column-cluster".to_string()));
+    }
+
+    #[test]
+    fn form_column_table_layout_mode_stays_review_safe() {
+        let mut words = Vec::new();
+        words.extend(row_words(0, &["Code", "Location", "Expected"]));
+        words.extend(row_words(1, &["A", "North", "10"]));
+        words.extend(row_words(2, &["B", "South", "12"]));
+        words.extend(row_words(3, &["C", "East", "14"]));
+
+        let tables = detect_coordinate_tables(&words, 600.0, TableMode::Layout);
+
+        assert_eq!(tables.len(), 1);
+        assert!(matches!(tables[0].table.render, TableRender::Layout { .. }));
+    }
+
+    #[test]
+    fn form_column_table_rejects_masterformat_partial_numbering() {
+        let words = vec![
+            word_at(".1", 50.0, 0, 14.0),
+            word_at("The", 110.0, 0, 20.0),
+            word_at("intent", 180.0, 0, 36.0),
+            word_at(".2", 50.0, 1, 14.0),
+            word_at("Available", 110.0, 1, 54.0),
+            word_at("information", 180.0, 1, 70.0),
+            word_at(".3", 50.0, 2, 14.0),
+            word_at("Submit", 110.0, 2, 40.0),
+            word_at("documents", 180.0, 2, 64.0),
+        ];
+
+        let tables = detect_coordinate_tables(&words, 600.0, TableMode::Auto);
+
+        assert!(tables.is_empty());
     }
 }

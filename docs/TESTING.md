@@ -165,7 +165,7 @@ Current processor limitations:
   - `--hybrid off` produces byte-identical output to the Phase 1 snapshot — regression guard across all later phases.
 - **Corpus sweep** — invokes the built binary against 13 real PDFs (arXiv ML papers + OpenDataLoader fixtures including a Chinese scan and an Italian invoice). Asserts exit 0, non-empty markdown, and ≥ 1 image extracted for figure-heavy papers.
 - **Snapshot** — `tests/snapshots/attention_page_1.md` is the authoritative reference for the local path's reading order + classification on a two-column academic paper. Regenerate with `GOLDEN_UPDATE=1`.
-- **Sidecar audit** — `scripts/sidecar-audit.sh` compares native output with deterministic peers (`pdftotext`, PyMuPDF4LLM, pdfplumber, pdfminer.six, Camelot, Tabula, OCRmyPDF) plus optional ML sidecars. Missing commands/modules skip cleanly and the script still writes `target/sidecar-audit/summary.md`.
+- **Sidecar audit** — `scripts/sidecar-audit.sh` compares native output with deterministic peers (`pdftotext`, PyMuPDF4LLM, pdfplumber, pdfminer.six, Camelot, Tabula, OCRmyPDF) plus optional ML sidecars. Missing commands/modules skip cleanly and the script still writes `target/sidecar-audit/summary.md`. MarkItDown fixture PDFs can be kept under ignored `test-corpus/third-party/markitdown/` for manual form-table comparisons; they are not required by CI.
 
 ## Test PDFs
 
@@ -228,7 +228,7 @@ The benchmark helpers currently use only the Python standard library. `tools/eva
 
 Regenerate the stored baseline only after intentionally changing extraction behavior. Before regenerating, inspect the changed Markdown under the relevant `target/quality-*` case output directories.
 
-For the repeatable research/change/test/observe workflow, see `docs/QUALITY_LOOP.md`.
+For the repeatable improvement workflow, see the [Quality Improvement Loop](#quality-improvement-loop) section below.
 
 | File | Profile |
 | --- | --- |
@@ -397,7 +397,7 @@ ls -la /tmp/pdfp-eyeball/*/
 Things to look for:
 
 - Two-column papers: title → authors → abstract → body in correct order, not interleaved by column.
-- Math-heavy pages: if routed to Docling, display equations should appear as `$$ ... $$`. If not routed, Unicode math characters should still be present (or the page should have silently dropped any glyph without a ToUnicode map, which is the documented local-path limit — see `docs/pdf-internals.md` § "Fonts, encodings, and why text sometimes vanishes").
+- Math-heavy pages: if routed to Docling, display equations should appear as `$$ ... $$`. If not routed, Unicode math characters should still be present (or the page should have silently dropped any glyph without a ToUnicode map, which is the documented local-path limit — see `docs/reference/pdf-format.md` § "Fonts, encodings, and why text sometimes vanishes").
 - Formula gaps: run `--debug-formulas` on standards or math fixtures. Inspect `debug/formulas/pageN.json`, matching `pageN_formulaM.png` crops, and any `formula-review` comments before treating equations as complete. If a page matters for engineering use and the local text is incomplete, rerun with `--hybrid docling --formulas hybrid` or keep the downstream standard page in draft.
 - Figures: default `--figures embedded` should produce `![image](images/pageN_imgM.png)` for real embedded raster figures. `--figures snapshot` should instead produce rendered page-region assets such as `![image](images/pageN_figM.png)` when a figure candidate is detected. Snapshot mode is heuristic; inspect `--debug-figures` JSON before treating a miss as a renderer failure.
 - Tables: GFM pipe tables. Missing cells are OK (the classifier's grid detector is best-effort); garbage text in cells is not OK.
@@ -405,10 +405,7 @@ Things to look for:
 
 ## Evaluation (`pdfp eval`)
 
-`pdfp eval <fixtures-dir>` runs the local pipeline against fixture PDFs and
-reports recall and precision for formulas, headings, table pages, table
-regions, and image/figure extraction. Fixture JSON files live next to their PDFs
-and are intentionally small enough to edit by hand.
+`pdfp eval <fixtures-dir>` runs the local pipeline against fixture JSON files and reports recall/precision for formulas, headings, tables, figures, and decorative images.
 
 ```bash
 pdfp eval tests/eval_fixtures/
@@ -432,81 +429,164 @@ paper.pdf
   vector-only acknowledgement: 100.0% (0/0)
 ```
 
-Fixture format is documented in `tests/eval_fixtures/README.md`. Missing PDFs
-are reported as skipped documents rather than panicking, which lets local corpus
-fixtures exist on developer machines without making CI depend on large PDFs.
+### Fixture schema
 
-### Stage 7.5 local baseline
+Each `.json` file describes one PDF's expected content:
 
-The Stage 7.5 baseline fixtures use ignored PDFs under `test-corpus/eval/`.
-On this machine they were copied from the local Typst templates:
+```json
+{
+  "pdf": "relative/path/to/file.pdf",
+  "pages": [
+    {
+      "page": 1,
+      "expected_formula_count": 2,
+      "expected_formula_detection_count": 2,
+      "expected_formula_latex_snippets": ["E =", "\\sqrt"],
+      "formula_false_positive_budget": 0,
+      "expected_headings": [{ "text": "Introduction", "level": 1 }],
+      "expected_tables": 1,
+      "expected_table_regions": [
+        { "x0": 40.0, "y0": 100.0, "x1": 500.0, "y1": 180.0 }
+      ],
+      "expected_decorative_images": 0,
+      "expected_meaningful_figures": 1,
+      "expected_figure_captions": 1,
+      "expected_vector_only_regions": 0,
+      "skip_text_metrics": false,
+      "skip_table_metrics": false
+    }
+  ]
+}
+```
+
+Field notes:
+
+- `page`: 1-indexed.
+- `expected_formula_count`: total emitted formula or formula-review blocks.
+- `expected_formula_detection_count`: optional candidate count checked against `debug/formulas/index.json`.
+- `expected_formula_latex_snippets`: optional snippets that should appear in recovered/emitted LaTeX or source text.
+- `formula_false_positive_budget`: allowed extra detected candidates before precision is penalized.
+- `expected_headings`: exact text, case-insensitive and trimmed, plus heading level.
+- `expected_tables`: `1` if at least one table is expected, otherwise `0`.
+- `expected_table_regions`: optional expected table bboxes in page coordinates (IoU-based precision).
+- `expected_decorative_images`: decorative images that should be suppressed.
+- `expected_meaningful_figures`: meaningful figure regions that should be retained.
+- `expected_figure_captions`: expected retained figures with paired captions.
+- `expected_vector_only_regions`: vector-only regions that should be acknowledged.
+- `skip_text_metrics` / `skip_table_metrics`: use for image-only benchmark pages.
+
+`pdfp eval` reports both recall and precision. Formula precision is `matched / emitted_formula_blocks`. Heading precision is `matched / emitted_heading_blocks`. Table precision is page-based; table-region precision uses IoU against fixture bboxes. Image metrics report decorative suppression, figure retention, caption pairing, and vector-only acknowledgement.
+
+### Adding a fixture
+
+1. Place the PDF in this directory or use a relative path to a local corpus PDF.
+2. Run `pdfp inspect <pdf>` to identify page content.
+3. Create a `.json` file with expectations for the pages you want to measure.
+4. Run `pdfp eval tests/eval_fixtures/`.
+
+### Formula corpus
+
+The tracked formula corpus under `tests/eval_fixtures/formula_corpus/` contains Typst source and generated PDFs. Regenerate with:
+
+```sh
+scripts/generate-eval-fixtures.sh formula-corpus
+```
+
+These fixtures keep formula expectations non-zero in a fresh clone without the ignored external engineering corpus.
+
+### Stage baseline
+
+Engineering fixtures (`engineering-calc-example.pdf`, `engineering-report-example.pdf`) live under ignored `test-corpus/eval/`. Missing PDFs are reported as skipped, keeping the JSON fixtures trackable without committing binary corpus files.
+
+Current measured baseline:
+
+| Signal | Result |
+| --- | ---: |
+| Heading accuracy | `17/21` |
+| Formula recall | `13/13` |
+| Table page recall | `4/4` |
+| Table page precision | `4/4` |
+| Table-region precision | `4/5` |
+| Meaningful figure retention | `6/6` |
+| Figure-caption pairing | `3/3` |
+| Vector-only acknowledgement | `1/1` |
+
+Hard image pack (generated with `scripts/generate-eval-fixtures.sh stage9-hard-images`):
+
+| Signal | Result |
+| --- | ---: |
+| Decorative suppression | `1/2` |
+| Meaningful figure retention | `8/9` |
+| Figure-caption pairing | `5/6` |
+| Vector-only acknowledgement | `1/2` |
+
+## Quality Improvement Loop
+
+The standard workflow for improving conversion quality:
+
+1. Baseline (`bash scripts/example-audit.sh`).
+2. Observe where output breaks down.
+3. Research one failure class.
+4. Change one algorithm or threshold.
+5. Re-run audit and cargo checks.
+6. Record the result.
+
+The aim is not to make every PDF perfect in one pass, but to make tables, formulas, images, scans, and reading order improve with evidence.
+
+### Sidecar comparison
 
 ```bash
-mkdir -p test-corpus/eval
-cp /home/eastill/projects/typst-templates/engineering-report/example.pdf \
-  test-corpus/eval/engineering-report-example.pdf
-cp /home/eastill/projects/typst-templates/engineering-calc/example.pdf \
-  test-corpus/eval/engineering-calc-example.pdf
+bash scripts/sidecar-audit.sh
 ```
 
-Run:
+Runs the native `pdfp` conversion plus optional backends that skip when unavailable:
+
+- `pdftotext-layout` — Poppler `pdftotext -layout`
+- `pymupdf4llm` — PyMuPDF4LLM Python module
+- `pdfplumber`, `pdfminer`, `camelot` — Python modules
+- `tabula` — `PDFP_TABULA_COMMAND` or `tabula` on `PATH`
+- `ocrmypdf` — OCR then native conversion
+- `docling` — `PDFP_SIDECAR_DOCLING_URL` (default `http://localhost:5001`)
+- `gmft`, `img2table`, `unimernet` — external command wrappers
+
+Outputs: `target/sidecar-audit/` with per-backend directories and `summary.md`.
+
+### Failure classes
+
+**Tables**: strongest on simple invoices, still struggles on financial statements where row labels wrap, year columns bleed together, and subtotal rows look like equations. Next step: snapshot fixture for the Bialetti page.
+
+**Formulas**: formula detection is an audit/escalation path, not reliable standalone LaTeX. Enrichment routes: subprocess `rapid_latex_ocr` sidecar, Docling hybrid, ONNX native (optional). Formula candidates inside high-confidence table regions are suppressed.
+
+**Images/figures/scans**: born-digital figures are detectable; scan-heavy pages warn or need `--ocr auto`. Vector-drawn diagrams need more review than raster extraction alone.
+
+### Change gate
+
+Before accepting a quality change:
 
 ```bash
-target/debug/pdfp eval tests/eval_fixtures/
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo check --features pdfium-metadata
+bash scripts/example-audit.sh
+bash scripts/sidecar-audit.sh
 ```
 
-Stage 8.5 measured result:
+If a change is intended to improve only one class, the other classes must not regress in the audit output.
 
-```text
-engineering-calc-example.pdf
-  pages evaluated:    2
-  formula recall:     100.0% (12/12)
-  formula precision:  100.0% (12/12, fp 0)
-  heading accuracy:   100.0% (8/8)
-  heading precision:  100.0% (8/8, fp 0)
-  table recall:       100.0% (1/1)
-  table precision:    100.0% (1/1, fp 0)
+### Record template
 
-  table region recall:    100.0% (1/1)
-  table region precision: 50.0% (1/2, fp 1, fn 0)
+```markdown
+## YYYY-MM-DD - <change>
 
-engineering-report-example.pdf
-  pages evaluated:    4
-  formula recall:     100.0% (1/1)
-  formula precision:  100.0% (1/1, fp 0)
-  heading accuracy:   69.2% (9/13)
-  heading precision:  100.0% (9/9, fp 0)
-  table recall:       100.0% (3/3)
-  table precision:    100.0% (3/3, fp 0)
-
-  table region recall:    100.0% (3/3)
-  table region precision: 100.0% (3/3, fp 0, fn 0)
-
-evaluated 2 document(s), skipped 1
+- Hypothesis:
+- Files changed:
+- Corpus:
+- Before:
+- After:
+- Regressions:
+- Next:
 ```
-
-Stage 7.5 started at 0/21 headings and 0/13 formulas. Stage 8 recovers
-numbered engineering headings and display/calc formulas while preserving the
-4/4 table recall floor. Stage 8.5 removes the tracked false-positive table
-pages and adds IoU-based table-region precision. Combined recorded table-region
-precision is 4/5 because the calc fixture still emits one extra layout region
-on a true-table page.
-
-Stage 9 image benchmark kickoff adds local harder-document fixtures for
-`attention.pdf`, the PDF/UA brochure, and vector-heavy `resnet.pdf` under the
-ignored `example/pdf/` corpus. On this machine, the current image baseline
-is 6/6 meaningful figure retention, 3/3 figure-caption pairing, and 1/1
-vector-only acknowledgement across the sampled pages. Decorative suppression is
-wired into `pdfp eval`.
-
-The generated `stage9-hard-images.pdf` pack adds controlled decorative,
-captioned-figure, mixed decorative/meaningful, and vector-only pages from
-tracked Typst/SVG sources. Run
-`scripts/generate-eval-fixtures.sh stage9-hard-images` before eval to include
-it. With that pack present, the current hard image totals are 1/2 decorative
-suppression, 8/9 meaningful figure retention, 5/6 figure-caption pairing, and
-1/2 vector-only acknowledgement. These are deliberately harder than the kickoff
-baseline and should be treated as the next Stage 9 improvement signal.
 
 ## How to add a new test
 

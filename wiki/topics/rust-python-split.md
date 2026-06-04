@@ -141,4 +141,4 @@ ONNX should be the first choice. Python is the fallback when a model isn't avail
 - [Formula Detection](../algorithms/formula-detection.md) — hybrid formula OCR path
 - [Scans and OCR](scans-and-ocr.md) — OCRmyPDF integration
 - [Evaluation and Benchmarks](evaluation-and-benchmarks.md) — eval framework
-- [ARCHITECTURE.md](../../ARCHITECTURE.md) — module map and design decisions
+- [docs/architecture.md](../../docs/architecture.md) — module map and design decisions

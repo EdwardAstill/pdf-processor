@@ -4,7 +4,7 @@
 
 pdfp holds a unique position among PDF tools. These are the things that make it different — and that must be protected in every change:
 
-1. **Single binary, zero Python** — No Python runtime, no GPU required, no venv. One ~20MB compiled binary does everything. This is the strongest differentiator against Docling (60k★), MinerU (64k★), and every other PDF→Markdown tool.
+1. **Single binary, zero Python** — No Python runtime, no GPU required, no venv. One ~46MB compiled binary does everything. This is the strongest differentiator against Docling, MinerU, and every other PDF→Markdown tool.
 
 2. **Offline-first, privacy-respecting** — All processing happens locally. No cloud API calls unless explicitly opted into (`--hybrid docling`). Works in air-gapped environments, compliance-sensitive workflows, and CI pipelines.
 
@@ -12,13 +12,11 @@ pdfp holds a unique position among PDF tools. These are the things that make it 
 
 4. **Custom eval framework** — No other Rust PDF tool has precision/recall metrics for formula detection, heading accuracy, table recall, figure retention, and decorative image suppression. This is essential for measuring quality over time.
 
-5. **Multi-format output** — Raw Markdown, chunked RAG output, Karpathy-style wiki folders, knowledge graph JSON, and Typst conversion. Purpose-built for AI/LLM consumption pipelines.
+5. **Conservative/review-safe mode** — `--conservative` disables speculative reconstruction (tables as Markdown tables, formulas as LaTeX) and emits only layout-preserving output. Critical for engineering/legal/standards documents where accuracy > prettiness.
 
-6. **Markdown→Typst bridge** — Unique path from Markdown to the modern Typst typesetting ecosystem. Enables high-quality PDF generation from extracted Markdown.
+6. **Page operations in the same binary** — Extract, delete, split, reorder, merge, resize, impose (2-up, booklet). No need for separate tools like qpdf or pdftk.
 
-7. **Conservative/review-safe mode** — `--conservative` disables speculative reconstruction (tables as Markdown tables, formulas as LaTeX) and emits only layout-preserving output. Critical for engineering/legal/standards documents where accuracy > prettiness.
-
-8. **Page operations in the same binary** — Extract, delete, split, reorder, merge, resize, impose (2-up, booklet). No need for separate tools like qpdf or pdftk.
+7. **Built-in eval fixtures** — Labelled regression fixtures for headings, formulas, tables, figures, and decorative images. Run `pdfp eval tests/eval_fixtures/` to measure quality changes over time.
 
 ## Module map
 
@@ -45,16 +43,18 @@ src/
 │   ├── mod.rs
 │   ├── xycut.rs        # XY-Cut++ reading order algorithm
 │   ├── classifier.rs   # Block classification (heading, paragraph, list...)
-│   ├── table.rs        # Table data structures
-│   ├── table_detector.rs # Table candidate detection
+│   ├── table.rs        # Table detection (numeric, alignment, form-column cluster)
+│   ├── table_detector.rs # Geometry-ruling table candidate detection
+│   ├── table_inference.rs # Implicit numeric table / form field inference
 │   ├── furniture.rs    # Page furniture (headers/footers/page numbers)
 │   └── drawing_ops.rs  # Drawing operation analysis
 │
 ├── formula/            # Formula detection
 │   ├── mod.rs
 │   ├── detect.rs       # Formula candidate detection (word-geometry heuristics)
+│   ├── geometric.rs    # Geometric LaTeX recovery from word positions
 │   ├── visual.rs       # Visual formula band scanning
-│   ├── ocr.rs          # Formula OCR dispatch
+│   ├── ocr.rs          # Formula OCR dispatch and subprocess sidecar
 │   └── ocr_onnx.rs     # ONNX Runtime formula OCR (optional feature)
 │
 ├── figure/             # Figure/image extraction
@@ -64,11 +64,15 @@ src/
 │
 ├── pipeline/           # PDF → Document pipeline glue
 │   ├── mod.rs          # Main pipeline: extract → classify → detect → merge → write
-│   └── merge.rs        # Geometry merge helpers (pure functions, well-tested)
+│   └── merge.rs        # Block suppression and media merge helpers
 │
-├── render/             # Document → RenderedDocument
+├── render/             # Markdown output
 │   ├── mod.rs
-│   └── markdown.rs     # MarkdownRenderer: serialize to Markdown strings
+│   ├── markdown/       # MarkdownRenderer (mod.rs), clean-style reflow (clean.rs), tests
+│   ├── table.rs        # Markdown table, numeric-table, and form-field rendering
+│   ├── scholarly.rs    # Scholarly front-matter rendering
+│   ├── media.rs        # Image/figure dedup plan
+│   └── text.rs         # Table cell escaping
 │
 ├── formats/            # Output format writers
 │   ├── mod.rs
@@ -94,7 +98,8 @@ src/
 │   ├── page_range.rs   # Page range parsing
 │   ├── impose.rs       # pdfp impose (2up/booklet)
 │   ├── resize.rs       # pdfp page resize
-│   └── doctor.rs       # pdfp doctor
+│   ├── doctor.rs       # pdfp doctor
+│   └── update.rs       # pdfp update (check/force)
 │
 └── eval/               # Quality evaluation framework
     ├── mod.rs
@@ -160,28 +165,23 @@ With the `pdfium-metadata` feature, struct-tree roles (`H1`..`H6`, `Title`) over
 
 ## Test structure
 
-```
-tests/
-├── eval_fixtures/      # JSON fixture files for quality evaluation
-├── table_detection.rs  # Integration tests for table detection
-└── ...                 # Other integration tests
-```
+Full test structure is documented in [`docs/TESTING.md`](docs/TESTING.md). Quality evaluation fixtures live in `tests/eval_fixtures/`.
 
-- `cargo clippy -- -D warnings` — must be clean before committing
+- `cargo clippy --all-targets -- -D warnings` — must be clean before committing
 - `cargo test` — runs unit tests + integration tests
 - `pdfp eval tests/eval_fixtures/` — quality evaluation against fixtures
 
-## Future directions
+## Remaining work
 
-- formula and standards-quality closeout
-- evaluation and benchmark polish
-- remaining PDF operations using existing MuPDF/lopdf APIs
-- forms, accessibility, international text, and hybrid routing polish
+- Formula standards-quality closeout: better table/formula separation, LaTeX recovery quality
+- Evaluation and benchmark polish: expand labelled fixtures, optional sidecar tools
+- PDF operations: outlines, annotations, encryption, compression via existing MuPDF/lopdf APIs
+- Forms, accessibility metadata, international text, and hybrid routing polish
 
 ## References
 
-- `.pied/research/pdf-processor-landscape/FINDINGS.md` — competitive landscape research
-- `.pied/research/pdf-processor-landscape/iterations/001.md` — API discovery research
+- `docs/reference/README.md` — module-by-module code reference with key types, functions, and CLI flags
 - `docs/CLI.md` — full CLI reference
 - `docs/TESTING.md` — test matrix
 - `docs/TOOL_COMPARISON.md` — comparison against competitors
+- `docs/reference/pdf-format.md` — PDF file format primer

@@ -14,15 +14,19 @@
 - **Page operations** — extract, delete, split, reorder, merge, resize, impose — all in the same tool
 - **Conservative mode** — `--conservative` disables speculative reconstruction for engineering/legal documents
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture and [docs/TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md) for how pdfp compares to Docling, MinerU, Marker, and other tools.
+See [docs/architecture.md](docs/architecture.md) for the full architecture and [docs/TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md) for how pdfp compares to Docling, MinerU, Marker, and other tools.
 
 The active codepath is:
 
-1. Open PDF with MuPDF.
-2. Extract text blocks, word positions, and images.
-3. Reconstruct reading order with XY-Cut++.
-4. Classify blocks into headings, lists, coordinate tables, captions, and paragraphs.
-5. Write markdown plus extracted images.
+1. **Open PDF with MuPDF** — the C-based rendering engine handles all PDF parsing.
+2. **Extract text blocks, word positions, and images** — producing positioned `RawWord`s with bounding boxes, baselines, font sizes, and block/line IDs.
+3. **Reconstruct reading order with XY-Cut++** — a recursive gap-based layout analysis that separates columns and orders blocks in natural reading flow.
+4. **Classify blocks** — into headings, paragraphs, lists, table cells, captions, code, formulas, figures, and page furniture (headers/footers).
+5. **Detect tables and formulas** — coordinate-based table detection from word alignment and rule-line geometry; formula detection from centering and math-character heuristics.
+6. **Merge** — table/formula/figure blocks are interleaved into the classified text stream with overlap suppression (high-confidence tables block overlapping formula candidates).
+7. **Write markdown** — all blocks are serialised to Markdown with the chosen style (`clean`, `faithful`, or `review`).
+
+Each major module has detailed documentation in [`docs/reference/`](docs/reference/README.md).
 
 ## Scope
 
@@ -102,149 +106,54 @@ pdfp page <resize|crop> <INPUT> -o <OUTPUT>
 pdfp update [--check] [--force]
 ```
 
-Bare `pdfp <INPUT>` remains a backwards-compatible alias for `pdfp convert <INPUT>`.
+Bare `pdfp <INPUT>` is an alias for `pdfp convert <INPUT>`. Every command prints help with `--help`.
 
-Every command and nested command has help:
-
-```sh
-pdfp --help
-pdfp doctor --help
-pdfp convert --help
-pdfp ocr --help
-pdfp eval --help
-pdfp metadata set --help
-pdfp pages extract --help
-pdfp pages rotate --help
-pdfp impose booklet --help
-pdfp page resize --help
-pdfp page crop --help
-```
-
-See the full CLI guide at [`docs/CLI.md`](docs/CLI.md). For an honest
-comparison against Docling, PyMuPDF4LLM, Marker, MinerU, Mathpix, Adobe PDF
-Extract, LlamaParse, and Unstructured, see
-[`docs/TOOL_COMPARISON.md`](docs/TOOL_COMPARISON.md).
-
-For conversion, `INPUT` can be:
-
-- one PDF file
-- a directory of PDFs
-- a quoted glob like `"papers/*.pdf"`
+New? Start with the [quickstart](docs/quickstart.md) for the three most common workflows.
+Full CLI reference and all examples in [`docs/CLI.md`](docs/CLI.md). How pdfp compares to other tools: [`docs/TOOL_COMPARISON.md`](docs/TOOL_COMPARISON.md).
 
 ### Convert
 
-Main convert options:
+Key flags (see `pdfp convert --help` or [`docs/CLI.md`](docs/CLI.md) for all options):
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-o`, `--output <DIR>` | next to input | Output directory |
-| `--min-h-gap <pts>` | `8.0` | XY-Cut horizontal-cut tuning |
-| `--min-v-gap <pts>` | `12.0` | XY-Cut vertical-cut tuning |
-| `--no-images` | off | Skip image extraction |
-| `--conservative` | off | Prefer review-safe fallbacks over heuristic reconstruction |
-| `--markdown-style <STYLE>` | `clean` | Markdown output profile: `clean`, `faithful`, or `review` (`--format` alias) |
-| `--figures <MODE>` | `embedded` | Image output mode: `embedded`, `snapshot`, `both`, or `none` |
-| `--figure-dpi <N>` | `200` | DPI for rendered figure snapshots |
-| `--figure-padding <pts>` | `8.0` | Padding around detected snapshot regions |
-| `--debug-figures` | off | Write figure candidate JSON under `debug/figures/` |
-| `--tables <MODE>` | `auto` | Table output mode: `auto`, `native`, `layout`, or `off` |
-| `--debug-tables` | off | Write table candidate JSON under `debug/tables/` |
-| `--formulas <MODE>` | `auto` | Formula handling: `auto`, `local`, `hybrid`, or `off` |
-| `--debug-formulas` | off | Write formula candidate JSON and rendered crops under `debug/formulas/` |
-| `--formula-sidecar <SIDECAR>` | off | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
-| `--formula-sidecar-timeout-secs <N>` | `30` | Timeout for each sidecar crop recognition attempt |
-| `--formula-emit <MODE>` | `auto` | Formula emission policy: `conservative`, `auto`, `all`, or `none` |
-| `--ocr <MODE>` | `off` | Local OCR preprocessing: `off`, `auto`, or `force` |
-| `--ocr-lang <LANGS>` | `eng` | OCR languages passed to OCRmyPDF/Tesseract, for example `eng+deu` |
-| `--ocr-cache-dir <DIR>` | off | Reuse searchable OCR derivative PDFs |
-| `--ocr-timeout-secs <N>` | `600` | OCR command timeout |
-| `--ocr-command <PATH>` | `ocrmypdf` | OCRmyPDF command path |
-| `--hybrid <MODE>` | `off` | `off` or `docling` |
-| `--hybrid-url <URL>` | `http://localhost:5001` | Hybrid backend base URL |
-| `--hybrid-timeout-secs <N>` | `600` | Hybrid timeout |
-| `--hybrid-policy <POLICY>` | `auto` | `auto` or `all` |
-| `--hybrid-cache-dir <DIR>` | off | Reuse per-page Docling markdown |
+| `--conservative` | off | Review-safe: layout tables, audit formulas, no speculative reconstruction |
+| `--markdown-style <STYLE>` | `clean` | `clean`, `faithful`, or `review` |
+| `--figures <MODE>` | `embedded` | `embedded`, `snapshot`, `both`, or `none` |
+| `--tables <MODE>` | `auto` | `auto`, `native`, `layout`, or `off` |
+| `--formulas <MODE>` | `auto` | `auto`, `local`, `hybrid`, or `off` |
+| `--debug-formulas` | off | Write formula candidate JSON and rendered crops |
+| `--ocr <MODE>` | `off` | Local OCR preprocessing: `auto` or `force` |
+| `--hybrid <MODE>` | `off` | `docling` for external page enrichment |
 | `-v`, `--verbose` | off | Print progress to stderr |
 
-Examples:
+Common patterns:
 
 ```sh
-# One PDF
+# Default clean conversion
 pdfp convert paper.pdf
 
 # Whole directory
 pdfp convert papers/ -o out/ --verbose
 
-# Quoted glob
-pdfp convert "papers/*.pdf" -o out/
-
-# Render complete visual figure regions instead of raw embedded image objects
-pdfp convert paper.pdf --figures snapshot --figure-dpi 200 -o out/
-
-# Keep both rendered figure snapshots and embedded image objects for inspection
-pdfp convert paper.pdf --figures both --debug-figures -o out/
-
-# Preserve hard catalogue tables as fixed-width layout blocks
-pdfp convert catalogue.pdf --tables layout -o out/
-
-# Default clean reader-friendly Markdown: normalize PDF artefacts and reflow wrapped paragraphs
-pdfp convert paper.pdf -o out/
-
-# Preserve the older PDF-faithful extraction shape when layout fidelity matters
-pdfp convert paper.pdf --markdown-style faithful -o out/
-
-# Review-safe conversion: no speculative Markdown tables or formula rendering
-pdfp convert standard.pdf --markdown-style review --debug-formulas --debug-tables -o out/
-
-# Backwards-compatible review-safe preset
+# Review-safe for engineering/legal documents
 pdfp convert standard.pdf --conservative --debug-formulas --debug-tables -o out/
 
-# Force coordinate-derived Markdown tables where possible
-pdfp convert catalogue.pdf --tables native --debug-tables -o out/
+# Render figure snapshots
+pdfp convert paper.pdf --figures snapshot --figure-dpi 200 -o out/
 
-# Audit formula candidates, rendered equation crops, and debug/formulas/index.json
+# Audit formulas
 pdfp convert standard.pdf --debug-formulas -o out/
 
-# Recover high-confidence formula crops with a local sidecar command
+# Recover formulas with local OCR
 pdfp convert standard.pdf --formula-sidecar rapid_latex_ocr --debug-formulas -o out/
 
-# Audit formulas without emitting Markdown math blocks
-pdfp convert standard.pdf --debug-formulas --formula-emit none -o out/
-
-# Compare native formula extraction with available optional providers
-scripts/formula-eval.sh standard.pdf out/formula-eval
-
-# Route formula-heavy pages through Docling enrichment
-pdfp convert standard.pdf --hybrid docling --formulas hybrid -o out/
-
-# Hybrid assist for harder pages
-pdfp convert math-paper.pdf --hybrid docling -o out/
-
-# Hybrid assist with cached OCR/table output
-pdfp convert scan.pdf --hybrid docling --hybrid-cache-dir .pdfp-cache -o out/
-
-# Local OCR sidecar for image-only or scan-heavy PDFs
-pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir .pdfp-ocr -o out/
-
-# Force OCR when the embedded text layer is broken
-pdfp convert bad-text-layer.pdf --ocr force --ocr-lang eng+deu -o out/
+# Scan preprocessing
+pdfp convert scan.pdf --ocr auto --ocr-lang eng -o out/
 ```
 
-Local OCR uses `ocrmypdf`, which in turn needs Tesseract and its language packs. OCR is not part of the default path. With `--ocr auto`, clean born-digital PDFs skip OCR even if OCRmyPDF is not installed; scan-heavy PDFs fail with an actionable missing-command message if OCR is requested but unavailable.
-
-`pdfp` resolves OCRmyPDF in this order:
-
-1. `--command <PATH>` / `--ocr-command <PATH>`
-2. `PDFP_OCR_COMMAND`
-3. `tools/ocr/ocrmypdf` bundled next to the installed `pdfp`
-4. `ocrmypdf` from `PATH`
-
-Check the runtime setup with:
-
-```sh
-pdfp doctor
-pdfp doctor --json
-```
+Local OCR uses `ocrmypdf` and Tesseract. Check availability with `pdfp doctor`.
 
 ### OCR PDF
 
@@ -326,7 +235,7 @@ LaTeX snippet recall, heading accuracy, and table recall:
 pdfp eval tests/eval_fixtures/
 ```
 
-Fixtures are documented in [`tests/eval_fixtures/README.md`](tests/eval_fixtures/README.md).
+Fixtures are documented in [docs/TESTING.md](docs/TESTING.md#evaluation-pdfp-eval).
 Missing local corpus PDFs are reported as skipped instead of crashing the run.
 
 ### Page Operations
@@ -369,41 +278,6 @@ pdfp page resize input.pdf --paper a4 --fit contain -o resized.pdf
 pdfp page crop input.pdf --pages all --box 0 0 500 700 -o cropped.pdf
 ```
 
-## Output
-
-For `paper.pdf`, default output looks like:
-
-```text
-paper/
-  paper.md
-  images/
-    page1_img1.png
-    page2_img1.png
-```
-
-The markdown uses standard headings, lists, fenced code blocks, GFM tables, and image references. By default, image links point at embedded image objects such as `![image](images/page1_img1.png)`. With `--figures snapshot`, image links point at rendered visual figure regions such as `![image](images/page1_fig1.png)`.
-
-For review-sensitive work, start with `--conservative`. It keeps the conversion local and avoids speculative reconstruction: tables use fixed-width layout blocks, formulas are audited but not rendered as Markdown math, and rendered figure snapshots are disabled unless you explicitly run a separate inspection pass.
-
-Table handling is local and coordinate-based for born-digital PDFs. `pdfp` combines word alignment with rendered rule-line geometry, so standards tables with explicit horizontal rules can be detected even when the text layer is not already split into cells. `--tables auto` emits Markdown tables when row/column confidence is good and falls back to fenced fixed-width `text` blocks when a region is table-like but too ambiguous. Use `--tables layout` or `--conservative` for engineering catalogues and standards where preserving visual column alignment is more important than getting a strict Markdown table. Scanned tables still need OCR first.
-
-Formula handling is an audit and escalation path, not generic OCR. `--formulas auto` detects likely display equations from word geometry, emits high-confidence candidates as display math under the default `--formula-emit auto` policy, and warns about candidate pages. `--debug-formulas` writes candidate JSON plus rendered equation crops under `debug/formulas/`; it also enables a conservative visual scan for isolated equation bands that are visible in the rendered page but missing from the PDF text layer. Visual-only formula regions are emitted as `formula-review` comments, not guessed LaTeX. Use `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` to send selected high-confidence crops to a local command; obvious prose/table/range candidates and broad ambiguous visual-only bands are rejected before OCR. The `rapid_latex_ocr` command gets a persistent Python worker so model startup is paid once per conversion rather than once per crop. Generic sidecar commands still receive the crop PNG path as their first argument and should print LaTeX to stdout. Sidecar outcomes are recorded per candidate as `recovered`, `empty-output`, `timeout`, `command-failed`, or `rejected-by-policy`, with timing and stderr/error summaries where available. Use `--formula-sidecar-timeout-secs` to tune slow providers. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. Use `--formula-emit conservative` or `--formula-emit none` when formulas must be audited without risky heuristic Markdown rendering; recovered sidecar LaTeX is preferred over local text. Use `--hybrid docling --formulas hybrid` when formulas matter; Docling's formula enrichment is the first recovery backend. `--formulas local` exists for inspection and should not be treated as reliable LaTeX reconstruction. `scripts/formula-eval.sh` compares native extraction with available sidecars/providers and writes `summary.json` plus `summary.md`.
-
-Optional native formula OCR:
-
-```sh
-mkdir -p ~/.local/share/pdfp/rapid-latex-ocr
-cd ~/.local/share/pdfp/rapid-latex-ocr
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/encoder.onnx
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/decoder.onnx
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/vocab.txt
-
-cargo build --release --features onnx-ocr
-target/release/pdfp convert paper.pdf --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr -o out/
-```
-
-Processor commands produce PDFs or JSON/human summaries. Dedicated metadata commands update document information fields, but page merge/reorder/imposition workflows still do not guarantee outlines, metadata, forms, or annotations are preserved.
-
 ## Tests
 
 ```sh
@@ -412,8 +286,14 @@ cargo test
 
 See [`docs/TESTING.md`](docs/TESTING.md) for the full matrix.
 
-## Wiki
+## Documentation
 
-For deeper implementation notes on PDF structure, text extraction, layout recovery, tables, OCR, Markdown rendering, and evaluation, see the [`wiki/`](wiki/README.md).
-
-For architecture decisions and module map, see [ARCHITECTURE.md](ARCHITECTURE.md).
+| Document | Covers |
+|---|---|
+| [docs/quickstart.md](docs/quickstart.md) | First 5 minutes — three most common workflows |
+| [docs/CLI.md](docs/CLI.md) | Full CLI reference with all options and examples |
+| [docs/architecture.md](docs/architecture.md) | Module map and design decisions |
+| [docs/TESTING.md](docs/TESTING.md) | Test matrix, eval fixtures, quality improvement loop |
+| [docs/TOOL_COMPARISON.md](docs/TOOL_COMPARISON.md) | How pdfp compares to other tools |
+| [docs/reference/](docs/reference/README.md) | Module-by-module code reference |
+| [wiki/](wiki/README.md) | Deep implementation notes per pipeline stage |

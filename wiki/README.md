@@ -64,14 +64,13 @@ What other projects are doing and what to borrow.
 
 ---
 
-## Current biggest gaps (2026-05)
+## Current biggest gaps (2026-06)
 
-1. Table detection for engineering standards — borderless tables, symbol-heavy rows, ~1% recall on DNV-ST-N001
-2. Formula OCR sidecar — LaTeX reconstruction not yet implemented; only review markers emitted
-3. Formula false positives — decorative rules and logo bars triggering visual detector
-4. Watermark/footer suppression — "Downloaded by…" contaminating table cells
-5. Inline formatting — bold/italic not extracted in default build (needs pdfium-metadata)
-6. Financial statement reconstruction — row structure loss in complex accounting tables
+1. Table detection for engineering standards — borderless tables, symbol-heavy rows; form-column clustering now handles borderless form tables but complex multi-row-header standards tables still need improvement
+2. Formula LaTeX recovery quality — sidecar path exists (`rapid_latex_ocr`) but still produces garbled output on some symbols; needs better crop selection and post-processing
+3. Watermark/footer suppression — "Downloaded by…" text contaminating table cells
+4. Inline formatting — bold/italic only extracted with optional `pdfium-metadata` feature
+5. Financial statement reconstruction — row structure loss in complex accounting tables
 
 ## Design position
 
