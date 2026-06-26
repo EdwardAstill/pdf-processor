@@ -63,11 +63,14 @@ install_ocr_deps() {
       ghostscript
   elif have pacman; then
     sudo pacman -S --needed --noconfirm \
-      ocrmypdf \
       tesseract \
       tesseract-data-eng \
       qpdf \
       ghostscript
+    if ! have ocrmypdf; then
+      printf 'pdfp: OCRmyPDF is not available from the Arch pacman repositories on this system.\n' >&2
+      printf 'pdfp: install the ocrmypdf AUR package manually, set PDFP_OCR_COMMAND, or continue without OCR.\n' >&2
+    fi
   elif have dnf; then
     sudo dnf install -y \
       ocrmypdf \
@@ -84,26 +87,33 @@ install_ocr_deps() {
   fi
 }
 
-asset="$(detect_asset)"
-url="$(download_url "$asset")"
+main() {
+  local asset url
+  asset="$(detect_asset)"
+  url="$(download_url "$asset")"
 
-mkdir -p "$INSTALL_ROOT" "$BIN_DIR"
-printf 'pdfp: downloading %s\n' "$url"
-curl -fsSL "$url" -o "$TMP_DIR/$asset"
-tar -xzf "$TMP_DIR/$asset" -C "$TMP_DIR"
+  mkdir -p "$INSTALL_ROOT" "$BIN_DIR"
+  printf 'pdfp: downloading %s\n' "$url"
+  curl -fsSL "$url" -o "$TMP_DIR/$asset"
+  tar -xzf "$TMP_DIR/$asset" -C "$TMP_DIR"
 
-rm -rf "$INSTALL_ROOT/bin" "$INSTALL_ROOT/tools"
-mkdir -p "$INSTALL_ROOT"
-cp -R "$TMP_DIR/bin" "$INSTALL_ROOT/bin"
-if [[ -d "$TMP_DIR/tools" ]]; then
-  cp -R "$TMP_DIR/tools" "$INSTALL_ROOT/tools"
-fi
+  rm -rf "$INSTALL_ROOT/bin" "$INSTALL_ROOT/tools"
+  mkdir -p "$INSTALL_ROOT"
+  cp -R "$TMP_DIR/bin" "$INSTALL_ROOT/bin"
+  if [[ -d "$TMP_DIR/tools" ]]; then
+    cp -R "$TMP_DIR/tools" "$INSTALL_ROOT/tools"
+  fi
 
-ln -sf "$INSTALL_ROOT/bin/pdfp" "$BIN_DIR/pdfp"
+  ln -sf "$INSTALL_ROOT/bin/pdfp" "$BIN_DIR/pdfp"
 
-install_ocr_deps
+  install_ocr_deps
 
-printf 'pdfp: installed %s\n' "$BIN_DIR/pdfp"
-if ! "$BIN_DIR/pdfp" doctor; then
-  printf 'pdfp: installed, but doctor reported a missing optional dependency.\n' >&2
+  printf 'pdfp: installed %s\n' "$BIN_DIR/pdfp"
+  if ! "$BIN_DIR/pdfp" doctor; then
+    printf 'pdfp: installed, but doctor reported a missing optional dependency.\n' >&2
+  fi
+}
+
+if [[ "${PDFP_INSTALL_SCRIPT_TESTING:-0}" != "1" ]]; then
+  main "$@"
 fi

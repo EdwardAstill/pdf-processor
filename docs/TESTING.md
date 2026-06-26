@@ -276,7 +276,8 @@ Install OCR dependencies before running live OCR checks:
 
 ```bash
 # Arch
-sudo pacman -S ocrmypdf tesseract tesseract-data-eng
+sudo pacman -S tesseract tesseract-data-eng qpdf ghostscript
+# Then install OCRmyPDF from AUR, or set PDFP_OCR_COMMAND to another OCRmyPDF path.
 
 # Debian / Ubuntu
 sudo apt install ocrmypdf tesseract-ocr tesseract-ocr-eng
