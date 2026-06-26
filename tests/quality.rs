@@ -151,6 +151,8 @@ fn scan_only_fixture_is_image_only_without_ocr() {
         .arg(&pdf)
         .arg("-o")
         .arg(&output_dir)
+        .arg("--ocr")
+        .arg("off")
         .output()
         .expect("pdfp should run on the scan fixture");
 
@@ -165,12 +167,8 @@ fn scan_only_fixture_is_image_only_without_ocr() {
         "expected scan-heavy warning in stderr"
     );
 
-    let markdown = std::fs::read_to_string(
-        output_dir
-            .join("golden__chinese_scan")
-            .join("golden__chinese_scan.md"),
-    )
-    .expect("scan fixture markdown should exist");
+    let markdown = std::fs::read_to_string(output_dir.join("golden__chinese_scan.md"))
+        .expect("scan fixture markdown should exist");
 
     let meaningful_lines: Vec<&str> = markdown
         .lines()
@@ -178,6 +176,7 @@ fn scan_only_fixture_is_image_only_without_ocr() {
             let trimmed = line.trim();
             !trimmed.is_empty()
                 && !trimmed.starts_with("<!-- page:")
+                && !trimmed.starts_with("<!-- WARNING:")
                 && !trimmed.starts_with("![image]")
         })
         .collect();

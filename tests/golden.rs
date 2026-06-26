@@ -179,7 +179,7 @@ fn golden_scan_like_pdf_warns_about_hybrid() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_pdfp_with_args(&pdf, &out, &["--images"]);
+    let result = run_pdfp_with_args(&pdf, &out, &["--ocr", "off", "--images"]);
     assert!(
         result.status.success(),
         "pdfp failed on chinese_scan.pdf: exit {:?}, stderr:\n{}",

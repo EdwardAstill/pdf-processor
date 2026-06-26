@@ -111,7 +111,8 @@ for provider in providers:
             'average_latency_ms': None,
         })
         continue
-    index_paths = list(dest.glob('*/debug/formulas/index.json'))
+    index_paths = list(dest.glob('debug/formulas/index.json'))
+    index_paths.extend(dest.glob('*/debug/formulas/index.json'))
     if not index_paths:
         rows.append({
             'provider': provider,
