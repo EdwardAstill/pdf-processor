@@ -49,15 +49,17 @@ The CLI layer defines all command-line arguments, types, and defaults. The proce
 | Flag | Default | Notes |
 |---|---|---|
 | `--markdown-style` | `clean` | Reader-friendly reflowed Markdown |
-| `--tables` | `auto` | Markdown when confident, layout fallback |
+| `--tables` | off | Also save detected table crops under `tables/` |
+| `--table-mode` | `auto` | Hidden/debug table rendering mode |
 | `--formulas` | `auto` | High-confidence candidates as display math |
-| `--figures` | `embedded` | Extracted embedded images only |
-| `--ocr` | `off` | No OCR preprocessing |
+| `--images` | off | Also save detected figure/image crops under `images/` |
+| `--figures` | unset | Hidden/debug image source mode; default asset mode is snapshots |
+| `--ocr` | `auto` | OCR scan-heavy pages only |
 | `--hybrid` | `off` | No Docling enrichment |
 | `--min-h-gap` | `8.0` | XY-Cut horizontal threshold |
 | `--min-v-gap` | `12.0` | XY-Cut vertical threshold |
 
-Conservative mode overrides: `--tables layout`, `--formulas auto` (but no heuristic rendering), `--formula-emit conservative`, `--figures embedded`, disables figure snapshots.
+Conservative mode overrides: `--table-mode layout`, `--formulas auto` (but no heuristic rendering), `--formula-emit conservative`, `--figures embedded`, disables figure snapshots.
 
 ## Command dispatch flow
 

@@ -54,12 +54,12 @@ fn snapshot_mode_writes_figure_pngs_not_embedded_image_links() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md = fs::read_to_string(out.join("attention").join("attention.md")).unwrap();
+    let md = fs::read_to_string(out.join("attention.md")).unwrap();
     assert!(md.contains("images/page"));
     assert!(md.contains("_fig"));
     assert!(!md.contains("_img"));
 
-    let image_dir = out.join("attention").join("images");
+    let image_dir = out.join("images");
     let figure_pngs: Vec<_> = fs::read_dir(&image_dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -73,13 +73,7 @@ fn snapshot_mode_writes_figure_pngs_not_embedded_image_links() {
     let first = fs::read(&figure_pngs[0]).unwrap();
     assert!(first.starts_with(b"\x89PNG\r\n\x1a\n"));
 
-    let debug = fs::read_to_string(
-        out.join("attention")
-            .join("debug")
-            .join("figures")
-            .join("page3.json"),
-    )
-    .unwrap();
+    let debug = fs::read_to_string(out.join("debug").join("figures").join("page3.json")).unwrap();
     assert!(debug.contains("\"bbox\""));
     assert!(debug.contains("\"confidence\""));
 }
@@ -110,9 +104,9 @@ fn no_images_suppresses_snapshot_figures() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md = fs::read_to_string(out.join("attention").join("attention.md")).unwrap();
+    let md = fs::read_to_string(out.join("attention.md")).unwrap();
     assert!(!md.contains("_fig"));
-    assert!(!out.join("attention").join("images").exists());
+    assert!(!out.join("images").exists());
 }
 
 #[test]
@@ -140,7 +134,7 @@ fn figures_none_suppresses_all_image_outputs() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md = fs::read_to_string(out.join("attention").join("attention.md")).unwrap();
+    let md = fs::read_to_string(out.join("attention.md")).unwrap();
     assert!(!md.contains("images/"));
-    assert!(!out.join("attention").join("images").exists());
+    assert!(!out.join("images").exists());
 }

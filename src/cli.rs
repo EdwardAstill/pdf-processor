@@ -55,20 +55,24 @@ pub struct ConvertArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ConvertOptions {
-    /// Output directory (default: next to input file)
+    /// Output directory (default: input file directory)
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
     /// Minimum vertical gap for horizontal cuts in points (PDF XY-Cut tuning)
-    #[arg(long, default_value = "8.0")]
+    #[arg(long, default_value = "8.0", hide = true)]
     pub min_h_gap: f32,
 
     /// Minimum horizontal gap for vertical cuts in points (PDF XY-Cut tuning)
-    #[arg(long, default_value = "12.0")]
+    #[arg(long, default_value = "12.0", hide = true)]
     pub min_v_gap: f32,
 
-    /// Skip image extraction
+    /// Save detected figures and images under images/
     #[arg(long)]
+    pub images: bool,
+
+    /// Skip image extraction.
+    #[arg(long, hide = true)]
     pub no_images: bool,
 
     /// Prefer audit/fallback output over heuristic reconstruction.
@@ -76,7 +80,7 @@ pub struct ConvertOptions {
     /// Conservative mode avoids speculative Markdown tables, formula rendering,
     /// and rendered figure snapshots. It is a preset for review-safe conversion;
     /// debug flags may still be used to inspect candidates.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub conservative: bool,
 
     /// Markdown output style: faithful extraction, clean reader-friendly Markdown, or review/audit output.
@@ -84,53 +88,66 @@ pub struct ConvertOptions {
         long = "markdown-style",
         alias = "format",
         value_enum,
-        default_value = "clean"
+        default_value = "clean",
+        hide = true
     )]
     pub markdown_style: MarkdownStyleArg,
 
     /// Figure/image output mode for markdown conversion
-    #[arg(long, value_enum, default_value = "embedded")]
-    pub figures: FigureMode,
+    #[arg(long, value_enum, hide = true)]
+    pub figures: Option<FigureMode>,
 
     /// Resolution for rendered figure snapshots
-    #[arg(long, default_value = "200")]
+    #[arg(long, default_value = "200", hide = true)]
     pub figure_dpi: u32,
 
     /// Padding around detected figure regions, in PDF points
-    #[arg(long, default_value = "8.0")]
+    #[arg(long, default_value = "8.0", hide = true)]
     pub figure_padding: f32,
 
     /// Write figure candidate debug JSON under debug/figures/
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub debug_figures: bool,
 
-    /// Table extraction mode for markdown conversion
-    #[arg(long, value_enum, default_value = "auto")]
-    pub tables: TableMode,
+    /// Save detected table crops under tables/
+    #[arg(long)]
+    pub tables: bool,
+
+    /// Table extraction mode for markdown conversion.
+    #[arg(long = "table-mode", value_enum, default_value = "auto", hide = true)]
+    pub table_mode: TableMode,
 
     /// Write table detection debug JSON under debug/tables/
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub debug_tables: bool,
 
+    /// Save detected equation crops under equations/
+    #[arg(long)]
+    pub equations: bool,
+
     /// Formula handling mode for markdown conversion
-    #[arg(long, value_enum, default_value = "auto")]
+    #[arg(long, value_enum, default_value = "auto", hide = true)]
     pub formulas: FormulaMode,
 
     /// Write formula detection debug JSON and crops under debug/formulas/
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub debug_formulas: bool,
 
     /// Optional formula OCR sidecar. Use a command, cmd:<command>, or onnx:<model-dir>.
-    #[arg(long, value_name = "SIDECAR")]
+    #[arg(long, value_name = "SIDECAR", hide = true)]
     pub formula_sidecar: Option<String>,
 
     /// Formula sidecar timeout per crop, in seconds.
-    #[arg(long, default_value = "30")]
+    #[arg(long, default_value = "30", hide = true)]
     pub formula_sidecar_timeout_secs: u64,
 
     /// Formula emission policy for detected/recovered candidates.
-    #[arg(long = "formula-emit", value_enum, default_value = "auto")]
+    #[arg(long = "formula-emit", value_enum, default_value = "auto", hide = true)]
     pub formula_emit: FormulaEmitMode,
+
+    /// Optional 1-indexed page range to convert, e.g. `1-3,9`.
+    #[arg(long)]
+    pub pages: Option<String>,
 
     /// Verbose output
     #[arg(short, long)]
@@ -139,33 +156,36 @@ pub struct ConvertOptions {
     /// Route PDFs through an external backend for higher-quality extraction
     /// (LaTeX formulas, complex tables, OCR). `off` (default) = fully local;
     /// `docling` = POST the whole PDF to a running `docling-serve` instance.
-    #[arg(long, value_enum, default_value = "off")]
+    #[arg(long, value_enum, default_value = "off", hide = true)]
     pub hybrid: HybridMode,
 
     /// Base URL of the hybrid backend (docling-serve). Only used when
     /// `--hybrid` is not `off`.
-    #[arg(long, default_value = "http://localhost:5001")]
+    #[arg(long, default_value = "http://localhost:5001", hide = true)]
     pub hybrid_url: String,
 
     /// Timeout in seconds for the hybrid backend call. Large scanned PDFs on
     /// CPU can take minutes.
-    #[arg(long, default_value = "600")]
+    #[arg(long, default_value = "600", hide = true)]
     pub hybrid_timeout_secs: u64,
 
     /// Which pages to route through the hybrid backend. `auto` (default)
     /// triages per page based on math-symbol count, table presence, and
     /// text density — only formula-/table-/scan-heavy pages pay the
     /// backend cost. `all` routes every page (useful for testing).
-    #[arg(long, value_enum, default_value = "auto")]
+    #[arg(long, value_enum, default_value = "auto", hide = true)]
     pub hybrid_policy: HybridPolicy,
 
     /// Optional directory for cached hybrid markdown, keyed by source PDF
     /// metadata and page number.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub hybrid_cache_dir: Option<PathBuf>,
 
     #[command(flatten)]
     pub ocr: OcrOptions,
+
+    #[arg(skip)]
+    pub batch_mode: bool,
 }
 
 #[derive(Args, Debug)]
@@ -607,32 +627,32 @@ pub enum AppCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct OcrOptions {
-    /// Local OCR preprocessing mode. `auto` OCRs scan-heavy PDFs only; `force`
-    /// OCRs regardless of readable text; `off` keeps the current fast path.
-    #[arg(long, value_enum, default_value = "off")]
+    /// OCR preprocessing mode. `auto` OCRs scan-heavy PDFs only; `force`
+    /// OCRs regardless of readable text; `off` skips OCR.
+    #[arg(long, value_enum, default_value = "auto")]
     pub ocr: OcrMode,
 
     /// OCR language(s), passed to OCRmyPDF/Tesseract, e.g. `eng` or `eng+deu`.
-    #[arg(long, default_value = "eng")]
+    #[arg(long = "lang", alias = "ocr-lang", default_value = "eng")]
     pub ocr_lang: String,
 
     /// Optional cache directory for derived searchable PDFs.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub ocr_cache_dir: Option<PathBuf>,
 
     /// Timeout in seconds for OCR preprocessing.
-    #[arg(long, default_value = "600")]
+    #[arg(long, default_value = "600", hide = true)]
     pub ocr_timeout_secs: u64,
 
     /// OCRmyPDF executable path or command name.
-    #[arg(long, default_value = "ocrmypdf")]
+    #[arg(long, default_value = "ocrmypdf", hide = true)]
     pub ocr_command: PathBuf,
 }
 
 impl Default for OcrOptions {
     fn default() -> Self {
         Self {
-            ocr: OcrMode::Off,
+            ocr: OcrMode::Auto,
             ocr_lang: "eng".to_string(),
             ocr_cache_dir: None,
             ocr_timeout_secs: 600,
@@ -747,16 +767,30 @@ impl ConvertOptions {
         if self.review_safe_profile() {
             FigureMode::Embedded
         } else {
-            self.figures
+            self.figures.unwrap_or(FigureMode::Snapshot)
         }
+    }
+
+    pub fn effective_image_output(&self) -> bool {
+        !self.no_images
+            && !matches!(self.figures, Some(FigureMode::None))
+            && (self.images || self.figures.is_some())
     }
 
     pub fn effective_table_mode(&self) -> TableMode {
         if self.review_safe_profile() {
             TableMode::Layout
         } else {
-            self.tables
+            self.table_mode
         }
+    }
+
+    pub fn export_table_images(&self) -> bool {
+        self.tables && !matches!(self.effective_table_mode(), TableMode::Off)
+    }
+
+    pub fn export_equation_images(&self) -> bool {
+        self.equations
     }
 
     pub fn effective_formula_mode(&self) -> FormulaMode {
@@ -782,20 +816,24 @@ impl Default for ConvertOptions {
             output: None,
             min_h_gap: 8.0,
             min_v_gap: 12.0,
+            images: false,
             no_images: false,
             conservative: false,
             markdown_style: MarkdownStyleArg::Clean,
-            figures: FigureMode::Embedded,
+            figures: None,
             figure_dpi: 200,
             figure_padding: 8.0,
             debug_figures: false,
-            tables: TableMode::Auto,
+            tables: false,
+            table_mode: TableMode::Auto,
             debug_tables: false,
+            equations: false,
             formulas: FormulaMode::Auto,
             debug_formulas: false,
             formula_sidecar: None,
             formula_sidecar_timeout_secs: 30,
             formula_emit: FormulaEmitMode::Auto,
+            pages: None,
             verbose: false,
             hybrid: HybridMode::Off,
             hybrid_url: "http://localhost:5001".to_string(),
@@ -803,6 +841,7 @@ impl Default for ConvertOptions {
             hybrid_policy: HybridPolicy::Auto,
             hybrid_cache_dir: None,
             ocr: OcrOptions::default(),
+            batch_mode: false,
         }
     }
 }
@@ -837,20 +876,24 @@ mod tests {
             output: None,
             min_h_gap: 8.0,
             min_v_gap: 12.0,
+            images: true,
             no_images: false,
             conservative,
             markdown_style: MarkdownStyleArg::Clean,
-            figures: FigureMode::Snapshot,
+            figures: Some(FigureMode::Snapshot),
             figure_dpi: 200,
             figure_padding: 8.0,
             debug_figures: false,
-            tables: TableMode::Native,
+            tables: true,
+            table_mode: TableMode::Native,
             debug_tables: false,
+            equations: false,
             formulas: FormulaMode::Local,
             debug_formulas: false,
             formula_sidecar: None,
             formula_sidecar_timeout_secs: 30,
             formula_emit: FormulaEmitMode::Auto,
+            pages: None,
             verbose: false,
             hybrid: HybridMode::Off,
             hybrid_url: "http://localhost:5001".to_string(),
@@ -858,6 +901,7 @@ mod tests {
             hybrid_policy: HybridPolicy::Auto,
             hybrid_cache_dir: None,
             ocr: OcrOptions::default(),
+            batch_mode: false,
         }
     }
 
@@ -902,7 +946,7 @@ mod tests {
     fn clean_style_keeps_selected_table_mode_without_disabling_math_rendering() {
         let mut options = convert_options(false);
         options.markdown_style = MarkdownStyleArg::Clean;
-        options.tables = TableMode::Layout;
+        options.table_mode = TableMode::Layout;
 
         assert_eq!(options.effective_table_mode(), TableMode::Layout);
         assert!(options.effective_render_math());

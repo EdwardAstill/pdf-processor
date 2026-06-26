@@ -65,7 +65,7 @@ fn clean_pdf_ocr_auto_skips_missing_ocr_tool() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        out.join("golden__lorem/golden__lorem.md").exists(),
+        out.join("golden__lorem.md").exists(),
         "conversion output should still be written"
     );
 }

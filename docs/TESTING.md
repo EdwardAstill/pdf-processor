@@ -254,10 +254,10 @@ Under ignored `test-corpus/golden/` (fixtures copied from OpenDataLoader's sampl
 
 ## Local OCR Setup
 
-Local OCR is optional and not part of the default conversion/search path. It is enabled with:
+Local OCR is used by Markdown conversion by default through `--ocr auto`; clean born-digital PDFs skip it after scan triage. It can also be requested explicitly with:
 
 ```bash
-pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache -o target/scan-md
+pdfp convert scan.pdf --ocr auto --lang eng --ocr-cache-dir target/ocr-cache -o target/scan-md
 pdfp ocr scan.pdf -o target/scan.searchable.pdf --mode auto --lang eng --cache-dir target/ocr-cache
 pdfp inspect scan.pdf --ocr auto --json
 pdfp search scan.pdf "needle" --ocr auto --json
@@ -276,8 +276,8 @@ Install OCR dependencies before running live OCR checks:
 
 ```bash
 # Arch
-sudo pacman -S tesseract tesseract-data-eng qpdf ghostscript
-# Then install OCRmyPDF from AUR, or set PDFP_OCR_COMMAND to another OCRmyPDF path.
+yay -S ocrmypdf tesseract tesseract-data-eng qpdf ghostscript
+# Or use paru instead of yay.
 
 # Debian / Ubuntu
 sudo apt install ocrmypdf tesseract-ocr tesseract-ocr-eng
@@ -293,14 +293,14 @@ command -v ocrmypdf
 command -v tesseract
 
 target/debug/pdfp convert example/pdf/golden__chinese_scan.pdf \
-  --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache \
+  --ocr auto --lang eng --ocr-cache-dir target/ocr-cache \
   -o target/ocr-scan --verbose
 
 target/debug/pdfp search example/pdf/golden__chinese_scan.pdf \
-  "text" --ocr auto --ocr-lang eng --ocr-cache-dir target/ocr-cache --json
+  "text" --ocr auto --lang eng --ocr-cache-dir target/ocr-cache --json
 ```
 
-If the scan output is still only an image reference, verify that the correct Tesseract language pack is installed and try a language matching the document, for example `--ocr-lang chi_sim` for simplified Chinese scans.
+If the scan output is still only an image reference, verify that the correct Tesseract language pack is installed and try a language matching the document, for example `--lang chi_sim` for simplified Chinese scans.
 
 ## Unverified paths
 
@@ -400,7 +400,7 @@ Things to look for:
 - Two-column papers: title → authors → abstract → body in correct order, not interleaved by column.
 - Math-heavy pages: if routed to Docling, display equations should appear as `$$ ... $$`. If not routed, Unicode math characters should still be present (or the page should have silently dropped any glyph without a ToUnicode map, which is the documented local-path limit — see `docs/reference/pdf-format.md` § "Fonts, encodings, and why text sometimes vanishes").
 - Formula gaps: run `--debug-formulas` on standards or math fixtures. Inspect `debug/formulas/pageN.json`, matching `pageN_formulaM.png` crops, and any `formula-review` comments before treating equations as complete. If a page matters for engineering use and the local text is incomplete, rerun with `--hybrid docling --formulas hybrid` or keep the downstream standard page in draft.
-- Figures: default `--figures embedded` should produce `![image](images/pageN_imgM.png)` for real embedded raster figures. `--figures snapshot` should instead produce rendered page-region assets such as `![image](images/pageN_figM.png)` when a figure candidate is detected. Snapshot mode is heuristic; inspect `--debug-figures` JSON before treating a miss as a renderer failure.
+- Figures: public `--images` should produce rendered page-region assets such as `![image](images/pageN_figM.png)` when a figure candidate is detected. Hidden/debug `--figures embedded` should produce `![image](images/pageN_imgM.png)` for real embedded raster figures. Snapshot mode is heuristic; inspect `--debug-figures` JSON before treating a miss as a renderer failure.
 - Tables: GFM pipe tables. Missing cells are OK (the classifier's grid detector is best-effort); garbage text in cells is not OK.
 - Page markers: `<!-- page:N -->` separators present, hidden on rendered display.
 

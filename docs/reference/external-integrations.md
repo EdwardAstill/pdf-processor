@@ -39,7 +39,7 @@ Runs OCRmyPDF/Tesseract *before* the main pipeline to add a searchable text laye
 | Flag | Effect |
 |---|---|
 | `--ocr off\|auto\|force` | OCR mode |
-| `--ocr-lang <LANGS>` | Tesseract language (e.g. `eng+deu`) |
+| `--lang <LANGS>` | Tesseract language (e.g. `eng+deu`) |
 | `--ocr-cache-dir <DIR>` | Cache searchable OCR PDFs |
 | `--ocr-timeout-secs <N>` | ocrmypdf timeout (default 600) |
 | `--ocr-command <PATH>` | Explicit ocrmypdf path |

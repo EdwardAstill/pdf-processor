@@ -237,10 +237,7 @@ fn formula_candidate_report_contains_page_and_status() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let debug_dir = out
-        .join("math-number-theory")
-        .join("debug")
-        .join("formulas");
+    let debug_dir = out.join("debug").join("formulas");
     let index = std::fs::read_to_string(debug_dir.join("index.json"))
         .expect("expected aggregate formula index");
     assert!(index.contains("\"schema_version\": 1"));

@@ -203,9 +203,8 @@ fn broken_formula_sidecar_still_writes_markdown_and_debug_index() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let doc_dir = out.join("math-number-theory");
-    assert!(doc_dir.join("math-number-theory.md").exists());
-    let index = fs::read_to_string(doc_dir.join("debug/formulas/index.json"))
+    assert!(out.join("math-number-theory.md").exists());
+    let index = fs::read_to_string(out.join("debug/formulas/index.json"))
         .expect("expected formula index despite sidecar failure");
     assert!(index.contains("command-failed"));
 }
@@ -240,10 +239,7 @@ fn convert_with_formula_sidecar_records_recovered_latex_in_debug_json() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let debug_dir = out
-        .join("math-number-theory")
-        .join("debug")
-        .join("formulas");
+    let debug_dir = out.join("debug").join("formulas");
     let mut debug_json = String::new();
     for entry in fs::read_dir(&debug_dir).unwrap() {
         let path = entry.unwrap().path();

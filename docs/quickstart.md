@@ -5,20 +5,20 @@ The three most common `pdfp` workflows in 30 seconds.
 ## 1. Convert a single PDF to Markdown
 
 ```sh
-pdfp convert paper.pdf
+pdfp paper.pdf
 ```
 
-Output: `paper/paper.md` plus extracted images in `paper/images/`. The Markdown uses clean reflowed paragraphs, GFM tables when detected, `$$...$$` for high-confidence formulas, and `![image](images/...)` for embedded images.
+Output: `paper.md`. The Markdown uses clean reflowed paragraphs, GFM tables when detected, `$$...$$` for high-confidence formulas, and OCR automatically when the PDF looks scan-heavy.
 
 ```sh
 # With verbose progress
-pdfp convert paper.pdf --verbose
+pdfp paper.pdf --verbose
 
-# Review-safe mode for engineering/legal documents (no speculative tables/formulas)
-pdfp convert standard.pdf --conservative
+# Also save visual assets
+pdfp paper.pdf --images --tables --equations
 
-# Render figure snapshots instead of raw embedded images
-pdfp convert paper.pdf --figures snapshot --figure-dpi 200
+# Force OCR when the embedded text layer is damaged
+pdfp bad-text-layer.pdf --ocr force --lang eng
 ```
 
 ## 2. Convert a whole directory
@@ -33,12 +33,9 @@ Converts every PDF in `papers/`, writing Markdown next to each source or to `out
 pdfp convert "papers/2024-*.pdf" -o out/2024/
 ```
 
-## 3. Debug conversion quality
+## 3. Inspect or Troubleshoot
 
 ```sh
-# Audit tables, formulas, and figures
-pdfp convert paper.pdf --debug-tables --debug-formulas --debug-figures -o out/
-
 # What's happening under the hood?
 pdfp inspect paper.pdf --json
 
@@ -46,12 +43,7 @@ pdfp inspect paper.pdf --json
 pdfp doctor
 ```
 
-Debug output goes under `out/paper/debug/`:
-- `tables/page1.json` — detected table candidates with evidence and confidence
-- `formulas/page1.json` — formula candidates with crop paths
-- `formulas/index.json` — aggregate formula audit ledger
-- `figures/page1.json` — detected figure candidates
-- `formulas/page1_formula1.png` — rendered equation crops
+For conversion asset output, use `--images`, `--tables`, and `--equations`. For a single PDF with `-o out/`, output goes directly under `out/`; directory and glob conversion use one subdirectory per input to avoid asset collisions.
 
 ## Next steps
 

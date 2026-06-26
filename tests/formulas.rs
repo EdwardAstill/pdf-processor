@@ -51,10 +51,7 @@ fn debug_formulas_writes_json_for_candidate_page() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let debug_dir = out
-        .join("math-number-theory")
-        .join("debug")
-        .join("formulas");
+    let debug_dir = out.join("debug").join("formulas");
     let json_files: Vec<_> = fs::read_dir(&debug_dir)
         .unwrap_or_else(|err| panic!("expected debug dir {debug_dir:?}: {err}"))
         .map(|entry| entry.unwrap().path())
@@ -105,10 +102,7 @@ fn debug_formulas_writes_crop_for_candidate_page() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let debug_dir = out
-        .join("math-number-theory")
-        .join("debug")
-        .join("formulas");
+    let debug_dir = out.join("debug").join("formulas");
     let crop_files: Vec<_> = fs::read_dir(&debug_dir)
         .unwrap_or_else(|err| panic!("expected debug dir {debug_dir:?}: {err}"))
         .map(|entry| entry.unwrap().path())
@@ -157,8 +151,7 @@ fn formulas_auto_promotes_high_confidence_candidates_to_display_math() {
         "expected formula warning in stderr"
     );
 
-    let md =
-        fs::read_to_string(out.join("math-number-theory").join("math-number-theory.md")).unwrap();
+    let md = fs::read_to_string(out.join("math-number-theory.md")).unwrap();
     assert!(
         !md.trim().is_empty(),
         "local markdown should still be written"
@@ -197,8 +190,7 @@ fn conservative_mode_does_not_render_local_formula_candidates() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md =
-        fs::read_to_string(out.join("math-number-theory").join("math-number-theory.md")).unwrap();
+    let md = fs::read_to_string(out.join("math-number-theory.md")).unwrap();
     assert!(
         !md.contains("$$"),
         "conservative mode should not render heuristic formula blocks even if --formulas local is present"

@@ -87,7 +87,7 @@ fn load_formula_debug_pages(
     pdf_path: &Path,
     output_base: &Path,
 ) -> anyhow::Result<BTreeMap<usize, FormulaDebugPageMetrics>> {
-    let output_dir = batch::output_dir_for(pdf_path, Some(output_base));
+    let output_dir = batch::conversion_output_dir_for(pdf_path, Some(output_base), false);
     let path = output_dir.join("debug").join("formulas").join("index.json");
     let json = std::fs::read_to_string(&path)?;
     let index: FormulaDebugIndex = serde_json::from_str(&json)?;
@@ -130,8 +130,9 @@ fn eval_convert_options(output_dir: PathBuf) -> ConvertOptions {
 
     ConvertOptions {
         output: Some(output_dir),
+        images: true,
         no_images: false,
-        figures: FigureMode::Snapshot,
+        figures: Some(FigureMode::Snapshot),
         figure_dpi: 96,
         debug_formulas: true,
         ..ConvertOptions::default()

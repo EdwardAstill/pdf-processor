@@ -69,10 +69,15 @@ fn bin_path() -> PathBuf {
 }
 
 fn run_pdfp(pdf: &Path, out_dir: &Path) -> std::process::Output {
+    run_pdfp_with_args(pdf, out_dir, &[])
+}
+
+fn run_pdfp_with_args(pdf: &Path, out_dir: &Path, args: &[&str]) -> std::process::Output {
     Command::new(bin_path())
         .arg(pdf)
         .arg("-o")
         .arg(out_dir)
+        .args(args)
         .output()
         .expect("failed to execute pdfp binary")
 }
@@ -83,7 +88,7 @@ fn stem(pdf: &Path) -> String {
 
 fn read_markdown(out_dir: &Path, pdf: &Path) -> String {
     let s = stem(pdf);
-    std::fs::read_to_string(out_dir.join(&s).join(format!("{s}.md")))
+    std::fs::read_to_string(out_dir.join(format!("{s}.md")))
         .unwrap_or_else(|err| panic!("failed to read markdown for {}: {err}", pdf.display()))
 }
 
@@ -136,7 +141,7 @@ fn golden_lorem_quick() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_pdfp(&pdf, &out);
+    let result = run_pdfp_with_args(&pdf, &out, &["--ocr", "off", "--images"]);
     assert!(
         result.status.success(),
         "pdfp failed on lorem.pdf: exit {:?}, stderr:\n{}",
@@ -144,7 +149,7 @@ fn golden_lorem_quick() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let md_path = out.join("lorem/lorem.md");
+    let md_path = out.join("lorem.md");
     assert!(
         md_path.exists(),
         "expected markdown at {}",
@@ -174,7 +179,7 @@ fn golden_scan_like_pdf_warns_about_hybrid() {
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out).unwrap();
 
-    let result = run_pdfp(&pdf, &out);
+    let result = run_pdfp_with_args(&pdf, &out, &["--images"]);
     assert!(
         result.status.success(),
         "pdfp failed on chinese_scan.pdf: exit {:?}, stderr:\n{}",
@@ -279,7 +284,10 @@ fn golden_corpus_sweep() {
             continue;
         }
 
-        let result = run_pdfp(&pdf, &out);
+        let s = stem(&pdf);
+        let doc_out = out.join(&s);
+        std::fs::create_dir_all(&doc_out).unwrap();
+        let result = run_pdfp_with_args(&pdf, &doc_out, &["--images"]);
 
         if !result.status.success() {
             failures.push(format!(
@@ -290,8 +298,7 @@ fn golden_corpus_sweep() {
             continue;
         }
 
-        let s = stem(&pdf);
-        let md_path = out.join(&s).join(format!("{s}.md"));
+        let md_path = doc_out.join(format!("{s}.md"));
         if !md_path.exists() {
             failures.push(format!("{rel}: no markdown at {}", md_path.display()));
             continue;
@@ -310,7 +317,7 @@ fn golden_corpus_sweep() {
         }
 
         if EXPECTS_IMAGES.contains(rel) {
-            let images_dir = out.join(&s).join("images");
+            let images_dir = doc_out.join("images");
             let img_count = std::fs::read_dir(&images_dir)
                 .map(|iter| iter.count())
                 .unwrap_or(0);
@@ -363,7 +370,7 @@ fn golden_snapshot_attention_page_1() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let md = std::fs::read_to_string(out.join("attention/attention.md"))
+    let md = std::fs::read_to_string(out.join("attention.md"))
         .expect("attention.md should exist after successful run");
 
     // Slice the markdown to everything up to (but not including) the page-2
@@ -436,16 +443,14 @@ fn golden_snapshot_invoice_and_form_structure() {
     }
 
     let invoice_md = std::fs::read_to_string(
-        out.join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-02_Invoice")
-            .join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-02_Invoice.md"),
+        out.join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-02_Invoice.md"),
     )
     .expect("invoice markdown should exist");
     assert!(invoice_md.contains("| Item | Quantity | Price | Amount |"));
     assert!(invoice_md.contains("Total:"));
 
     let form_md = std::fs::read_to_string(
-        out.join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-10_Form")
-            .join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-10_Form.md"),
+        out.join("golden__pdfua-1-reference-suite-1-1__PDFUA-Ref-2-10_Form.md"),
     )
     .expect("form markdown should exist");
     assert!(form_md.contains("- Check boxes:"));
@@ -477,11 +482,8 @@ fn golden_snapshot_financial_statement_structure() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let md = std::fs::read_to_string(
-        out.join("golden__issue-336-conto-economico-bialetti")
-            .join("golden__issue-336-conto-economico-bialetti.md"),
-    )
-    .expect("financial markdown should exist");
+    let md = std::fs::read_to_string(out.join("golden__issue-336-conto-economico-bialetti.md"))
+        .expect("financial markdown should exist");
     assert!(md.contains("| Item | Value 1 | Value 2 | Value 3 | Value 4 |"));
     assert!(md.contains("| 1) Ricavi delle vendite e delle prestazioni |"));
 }

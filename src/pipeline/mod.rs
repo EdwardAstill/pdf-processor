@@ -36,6 +36,7 @@ use crate::layout::{
 };
 use crate::ocr;
 use crate::pdf::{self, extractor::PdfExtractor};
+use crate::processor::page_range::parse_page_selection;
 use crate::render::markdown::MarkdownRenderer;
 
 use merge::{
@@ -63,6 +64,7 @@ pub fn process_pdf_to_document(pdf_path: &Path, args: &ConvertArgs) -> anyhow::R
 
     let (raw_pages, metadata) = PdfExtractor::extract(pdf_path)
         .with_context(|| format!("Failed to extract {}", pdf_path.display()))?;
+    let raw_pages = select_raw_pages(raw_pages, args)?;
     let ocr_report = ocr::triage::triage_raw_pages(&raw_pages);
     let prepared = ocr::prepare_pdf_with_report(
         pdf_path,
@@ -91,6 +93,7 @@ fn build_document(
 ) -> anyhow::Result<Document> {
     let (raw_pages, metadata) = PdfExtractor::extract(pdf_path)
         .with_context(|| format!("Failed to extract {}", pdf_path.display()))?;
+    let raw_pages = select_raw_pages(raw_pages, args)?;
     build_document_from_raw(
         pdf_path,
         output_base_path,
@@ -99,6 +102,38 @@ fn build_document(
         args,
         xycut_config,
     )
+}
+
+fn select_raw_pages(raw_pages: Vec<RawPage>, args: &ConvertArgs) -> anyhow::Result<Vec<RawPage>> {
+    let Some(spec) = args.options.pages.as_deref() else {
+        return Ok(raw_pages);
+    };
+    let selected: std::collections::BTreeSet<usize> = parse_page_selection(spec, raw_pages.len())?
+        .into_iter()
+        .collect();
+    Ok(raw_pages
+        .into_iter()
+        .filter(|page| selected.contains(&page.page_num))
+        .collect())
+}
+
+fn create_requested_asset_dirs(
+    output_dir: &Path,
+    options: &cli::ConvertOptions,
+) -> anyhow::Result<()> {
+    for dir in [
+        options.effective_image_output().then_some("images"),
+        options.export_table_images().then_some("tables"),
+        options.export_equation_images().then_some("equations"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let path = output_dir.join(dir);
+        std::fs::create_dir_all(&path)
+            .with_context(|| format!("Failed to create asset dir {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn build_document_from_raw(
@@ -116,13 +151,19 @@ fn build_document_from_raw(
         Duration::from_secs(args.options.formula_sidecar_timeout_secs),
     )?;
     let table_geometry_doc = mupdf::Document::open(pdf_path).ok();
-    let output_dir = batch::output_dir_for(output_base_path, args.options.output.as_deref());
+    let output_dir = batch::conversion_output_dir_for(
+        output_base_path,
+        args.options.output.as_deref(),
+        args.options.batch_mode,
+    );
     let images_dir = output_dir.join("images");
+    create_requested_asset_dirs(&output_dir, &args.options)?;
     let figure_mode = args.options.effective_figure_mode();
+    let image_output_enabled = args.options.effective_image_output();
     let extract_embedded_images =
-        !args.options.no_images && matches!(figure_mode, FigureMode::Embedded | FigureMode::Both);
+        image_output_enabled && matches!(figure_mode, FigureMode::Embedded | FigureMode::Both);
     let extract_snapshot_figures =
-        !args.options.no_images && matches!(figure_mode, FigureMode::Snapshot | FigureMode::Both);
+        image_output_enabled && matches!(figure_mode, FigureMode::Snapshot | FigureMode::Both);
 
     let page_build_context = PageBuildContext {
         pdf_path,
@@ -286,6 +327,15 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
     if ctx.args.options.debug_tables && !matches!(table_mode, TableMode::Off) {
         write_table_debug(ctx.output_dir, raw_page.page_num, &table_candidates)?;
     }
+    if ctx.args.options.export_table_images() && !matches!(table_mode, TableMode::Off) {
+        write_table_crops(
+            ctx.pdf_path,
+            ctx.output_dir,
+            raw_page.page_num,
+            &table_candidates,
+            ctx.args.options.figure_dpi,
+        )?;
+    }
     let mut formula_candidates = if matches!(formula_mode, FormulaMode::Off) {
         Vec::new()
     } else {
@@ -295,7 +345,9 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         formula_candidates,
         &formula_blocking_tables,
     );
-    if ctx.args.options.debug_formulas && !matches!(formula_mode, FormulaMode::Off) {
+    if (ctx.args.options.debug_formulas || ctx.args.options.export_equation_images())
+        && !matches!(formula_mode, FormulaMode::Off)
+    {
         let visual_candidates = detect_visual_formula_candidates(
             ctx.pdf_path,
             &raw_page,
@@ -305,12 +357,24 @@ fn build_page(mut raw_page: RawPage, ctx: &PageBuildContext<'_>) -> anyhow::Resu
         formula_candidates.extend(visual_candidates);
         renumber_formula_candidates(&mut formula_candidates);
     }
-    if (ctx.args.options.debug_formulas || ctx.formula_sidecar.is_some())
+    if (ctx.args.options.debug_formulas
+        || ctx.formula_sidecar.is_some()
+        || ctx.args.options.export_equation_images())
         && !matches!(formula_mode, FormulaMode::Off)
     {
+        let crop_dir;
+        let crop_rel_dir;
+        if ctx.args.options.export_equation_images() {
+            crop_dir = ctx.output_dir.join("equations");
+            crop_rel_dir = "equations";
+        } else {
+            crop_dir = ctx.output_dir.join("debug").join("formulas");
+            crop_rel_dir = "debug/formulas";
+        }
         write_formula_debug(
             ctx.pdf_path,
-            ctx.output_dir,
+            &crop_dir,
+            crop_rel_dir,
             raw_page.page_num,
             &mut formula_candidates,
             ctx.args.options.figure_dpi,
@@ -782,6 +846,49 @@ fn write_table_debug(
         .with_context(|| format!("Failed to write table debug {}", path.display()))
 }
 
+fn write_table_crops(
+    pdf_path: &Path,
+    output_dir: &Path,
+    page_num: usize,
+    candidates: &[TableCandidate],
+    dpi: u32,
+) -> anyhow::Result<()> {
+    let tables_dir = output_dir.join("tables");
+    std::fs::create_dir_all(&tables_dir)
+        .with_context(|| format!("Failed to create tables dir {}", tables_dir.display()))?;
+
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    let document = mupdf::Document::open(pdf_path).with_context(|| {
+        format!(
+            "Failed to open {} for table crop rendering",
+            pdf_path.display()
+        )
+    })?;
+    let page = document.load_page(page_num as i32).with_context(|| {
+        format!(
+            "Failed to load page {} for table crop rendering",
+            page_num + 1
+        )
+    })?;
+
+    for (index, candidate) in candidates.iter().enumerate() {
+        let filename = format!("page{}_table{}.png", page_num + 1, index + 1);
+        let abs_path = tables_dir.join(&filename);
+        if let Some(bytes) =
+            crate::figure::render::render_bbox_png(&page, candidate.table.bbox, dpi)
+                .with_context(|| format!("Failed to render table crop {filename}"))?
+        {
+            std::fs::write(&abs_path, bytes)
+                .with_context(|| format!("Failed to write table crop {}", abs_path.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
 fn write_figure_debug(
     output_dir: &Path,
     page_num: usize,
@@ -854,16 +961,16 @@ fn write_formula_index(
 
 fn write_formula_debug(
     pdf_path: &Path,
-    output_dir: &Path,
+    crop_dir: &Path,
+    crop_rel_dir: &str,
     page_num: usize,
     candidates: &mut [FormulaCandidate],
     dpi: u32,
     sidecar: Option<&dyn FormulaSidecar>,
     write_json: bool,
 ) -> anyhow::Result<()> {
-    let debug_dir = output_dir.join("debug").join("formulas");
-    std::fs::create_dir_all(&debug_dir)
-        .with_context(|| format!("Failed to create formula debug dir {}", debug_dir.display()))?;
+    std::fs::create_dir_all(crop_dir)
+        .with_context(|| format!("Failed to create formula crop dir {}", crop_dir.display()))?;
 
     if !candidates.is_empty() {
         let document = mupdf::Document::open(pdf_path).with_context(|| {
@@ -882,14 +989,14 @@ fn write_formula_debug(
                 page_num + 1,
                 candidate.formula_index + 1
             );
-            let abs_path = debug_dir.join(&filename);
+            let abs_path = crop_dir.join(&filename);
             if let Some(bytes) = crate::figure::render::render_bbox_png(&page, candidate.bbox, dpi)
                 .with_context(|| format!("Failed to render formula crop {filename}"))?
             {
                 std::fs::write(&abs_path, bytes).with_context(|| {
                     format!("Failed to write formula crop {}", abs_path.display())
                 })?;
-                candidate.crop_path = Some(format!("debug/formulas/{filename}"));
+                candidate.crop_path = Some(format!("{crop_rel_dir}/{filename}"));
                 if let Some(sidecar) = sidecar {
                     if should_send_to_formula_sidecar(candidate) {
                         let attempt = sidecar.recognize(&abs_path);
@@ -916,6 +1023,20 @@ fn write_formula_debug(
     }
 
     if write_json && !candidates.is_empty() {
+        let debug_dir = crop_dir
+            .parent()
+            .filter(|parent| parent.file_name().is_some_and(|name| name == "debug"))
+            .map(|_| crop_dir.to_path_buf())
+            .unwrap_or_else(|| {
+                crop_dir
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join("debug")
+                    .join("formulas")
+            });
+        std::fs::create_dir_all(&debug_dir).with_context(|| {
+            format!("Failed to create formula debug dir {}", debug_dir.display())
+        })?;
         let path = debug_dir.join(format!("page{}.json", page_num + 1));
         let json = serde_json::to_string_pretty(candidates)?;
         std::fs::write(&path, json)
@@ -1276,7 +1397,7 @@ fn warn_on_scan_like_pages(
         let next_step = if matches!(args.options.ocr.ocr, cli::OcrMode::Off) {
             "Try `--ocr auto` for local OCR, or `--hybrid docling` for external assist."
         } else {
-            "Check `--ocr-lang`, or try `--hybrid docling` for external assist."
+            "Check `--lang`, or try `--hybrid docling` for external assist."
         };
         eprintln!(
             "  warning: {} looks scan-heavy ({} image-only / {} low-density page(s), {} page(s) with readable text); local output may be poor. {}",
@@ -1373,9 +1494,13 @@ fn save_page_images(image_refs: &[ImageRef], images_dir: &Path) -> anyhow::Resul
 }
 
 fn write_document(doc: &Document, input_path: &Path, args: &ConvertArgs) -> anyhow::Result<()> {
-    let output_dir = batch::output_dir_for(input_path, args.options.output.as_deref());
+    let output_dir = batch::conversion_output_dir_for(
+        input_path,
+        args.options.output.as_deref(),
+        args.options.batch_mode,
+    );
     let renderer = MarkdownRenderer::with_style(
-        !args.options.no_images,
+        args.options.effective_image_output(),
         Some(output_dir.join("images")),
         args.options.effective_markdown_style(),
     );

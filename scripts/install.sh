@@ -62,14 +62,29 @@ install_ocr_deps() {
       qpdf \
       ghostscript
   elif have pacman; then
-    sudo pacman -S --needed --noconfirm \
-      tesseract \
-      tesseract-data-eng \
-      qpdf \
-      ghostscript
-    if ! have ocrmypdf; then
+    if have yay; then
+      yay -S --needed --noconfirm \
+        ocrmypdf \
+        tesseract \
+        tesseract-data-eng \
+        qpdf \
+        ghostscript
+    elif have paru; then
+      paru -S --needed --noconfirm \
+        ocrmypdf \
+        tesseract \
+        tesseract-data-eng \
+        qpdf \
+        ghostscript
+    else
+      sudo pacman -S --needed --noconfirm \
+        tesseract \
+        tesseract-data-eng \
+        qpdf \
+        ghostscript
       printf 'pdfp: OCRmyPDF is not available from the Arch pacman repositories on this system.\n' >&2
-      printf 'pdfp: install the ocrmypdf AUR package manually, set PDFP_OCR_COMMAND, or continue without OCR.\n' >&2
+      printf 'pdfp: install an AUR helper such as yay/paru, install the ocrmypdf AUR package manually, or set PDFP_INSTALL_OCR=0.\n' >&2
+      return 1
     fi
   elif have dnf; then
     sudo dnf install -y \

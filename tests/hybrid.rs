@@ -61,6 +61,8 @@ fn hybrid_docling_uses_markdown_from_mock_server() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         .arg("--hybrid")
         .arg("docling")
         .arg("--hybrid-url")
@@ -78,7 +80,7 @@ fn hybrid_docling_uses_markdown_from_mock_server() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md_path = out_dir.join("lorem/lorem.md");
+    let md_path = out_dir.join("lorem.md");
     assert!(md_path.exists(), "expected output at {}", md_path.display());
     let content = std::fs::read_to_string(&md_path).unwrap();
 
@@ -122,6 +124,8 @@ fn hybrid_docling_preserves_display_formula_markdown() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         .arg("--hybrid")
         .arg("docling")
         .arg("--hybrid-url")
@@ -138,7 +142,7 @@ fn hybrid_docling_preserves_display_formula_markdown() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md_path = out_dir.join("math-number-theory/math-number-theory.md");
+    let md_path = out_dir.join("math-number-theory.md");
     assert!(md_path.exists(), "expected output at {}", md_path.display());
     let content = std::fs::read_to_string(&md_path).unwrap();
     assert!(
@@ -172,6 +176,8 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         .arg("--hybrid")
         .arg("docling")
         .arg("--hybrid-url")
@@ -195,7 +201,7 @@ fn hybrid_docling_logs_backend_errors_and_keeps_local_output() {
     );
 
     // Local path ran for lorem → we still got a non-empty markdown file.
-    let md_path = out_dir.join("lorem/lorem.md");
+    let md_path = out_dir.join("lorem.md");
     assert!(
         md_path.exists(),
         "local output should exist despite backend failure"
@@ -235,6 +241,8 @@ fn hybrid_auto_routes_scan_like_document_to_mock_backend() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         .arg("--hybrid")
         .arg("docling")
         .arg("--hybrid-url")
@@ -248,7 +256,7 @@ fn hybrid_auto_routes_scan_like_document_to_mock_backend() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md_path = out_dir.join("chinese_scan/chinese_scan.md");
+    let md_path = out_dir.join("chinese_scan.md");
     assert!(md_path.exists(), "expected output at {}", md_path.display());
     let content = std::fs::read_to_string(&md_path).unwrap();
     assert!(
@@ -278,6 +286,8 @@ fn hybrid_off_produces_same_output_as_before_phase_2() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         // --hybrid defaults to off; assert by omission.
         .output()
         .expect("failed to invoke pdfp");
@@ -287,7 +297,7 @@ fn hybrid_off_produces_same_output_as_before_phase_2() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md = std::fs::read_to_string(out_dir.join("attention/attention.md")).unwrap();
+    let md = std::fs::read_to_string(out_dir.join("attention.md")).unwrap();
     let page_1 = md.split("<!-- page:2 -->").next().unwrap_or("").trim_end();
 
     let snap = std::fs::read_to_string(root.join("tests/snapshots/attention_page_1.md"))
@@ -319,6 +329,8 @@ fn hybrid_live() {
         .arg(&pdf)
         .arg("-o")
         .arg(&out_dir)
+        .arg("--ocr")
+        .arg("off")
         .arg("--hybrid")
         .arg("docling")
         .arg("--hybrid-url")
@@ -334,8 +346,7 @@ fn hybrid_live() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let md =
-        std::fs::read_to_string(out_dir.join("math-number-theory/math-number-theory.md")).unwrap();
+    let md = std::fs::read_to_string(out_dir.join("math-number-theory.md")).unwrap();
 
     assert!(
         md.contains("$$") || md.contains('$'),

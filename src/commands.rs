@@ -66,9 +66,14 @@ fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
         eprintln!("Processing {} PDF file(s)", inputs.len());
     }
 
+    let batch_mode = inputs.len() > 1;
     let results: Vec<(std::path::PathBuf, anyhow::Result<()>)> = inputs
         .iter()
-        .map(|path| (path.clone(), process_one(path, &args)))
+        .map(|path| {
+            let mut per_file_args = args.clone();
+            per_file_args.options.batch_mode = batch_mode;
+            (path.clone(), process_one(path, &per_file_args))
+        })
         .collect();
 
     let mut had_errors = false;

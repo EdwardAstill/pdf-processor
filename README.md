@@ -61,7 +61,7 @@ Install the latest Linux release with one command:
 curl -fsSL https://github.com/EdwardAstill/pdf-processor/releases/latest/download/install.sh | sh
 ```
 
-The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies with the platform package manager when they are missing. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
+The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies with the platform package manager when they are missing. On Arch-like systems, it uses `yay` or `paru` for OCRmyPDF because OCRmyPDF is distributed through AUR. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
 
 To build from source, install `clang`/`libclang` and run:
 
@@ -113,47 +113,36 @@ Full CLI reference and all examples in [`docs/CLI.md`](docs/CLI.md). How pdfp co
 
 ### Convert
 
-Key flags (see `pdfp convert --help` or [`docs/CLI.md`](docs/CLI.md) for all options):
+Key flags:
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-o`, `--output <DIR>` | next to input | Output directory |
-| `--conservative` | off | Review-safe: layout tables, audit formulas, no speculative reconstruction |
-| `--markdown-style <STYLE>` | `clean` | `clean`, `faithful`, or `review` |
-| `--figures <MODE>` | `embedded` | `embedded`, `snapshot`, `both`, or `none` |
-| `--tables <MODE>` | `auto` | `auto`, `native`, `layout`, or `off` |
-| `--formulas <MODE>` | `auto` | `auto`, `local`, `hybrid`, or `off` |
-| `--debug-formulas` | off | Write formula candidate JSON and rendered crops |
-| `--ocr <MODE>` | `off` | Local OCR preprocessing: `auto` or `force` |
-| `--hybrid <MODE>` | `off` | `docling` for external page enrichment |
+| `--images` | off | Also save detected figures/images under `images/` |
+| `--tables` | off | Also save detected table crops under `tables/` |
+| `--equations` | off | Also save detected equation crops under `equations/` |
+| `--pages <RANGE>` | all | Convert selected pages, e.g. `1-3,9` |
+| `--ocr <MODE>` | `auto` | OCR preprocessing: `auto`, `force`, or `off` |
+| `--lang <LANGS>` | `eng` | OCR languages, such as `eng+deu` |
 | `-v`, `--verbose` | off | Print progress to stderr |
 
 Common patterns:
 
 ```sh
-# Default clean conversion
-pdfp convert paper.pdf
+# Default Markdown conversion: writes paper.md
+pdfp paper.pdf
+
+# Markdown plus optional visual assets
+pdfp paper.pdf --images --tables --equations
 
 # Whole directory
 pdfp convert papers/ -o out/ --verbose
 
-# Review-safe for engineering/legal documents
-pdfp convert standard.pdf --conservative --debug-formulas --debug-tables -o out/
-
-# Render figure snapshots
-pdfp convert paper.pdf --figures snapshot --figure-dpi 200 -o out/
-
-# Audit formulas
-pdfp convert standard.pdf --debug-formulas -o out/
-
-# Recover formulas with local OCR
-pdfp convert standard.pdf --formula-sidecar rapid_latex_ocr --debug-formulas -o out/
-
-# Scan preprocessing
-pdfp convert scan.pdf --ocr auto --ocr-lang eng -o out/
+# Force OCR when the embedded text layer is damaged
+pdfp bad-text-layer.pdf --ocr force --lang eng
 ```
 
-Local OCR uses `ocrmypdf` and Tesseract. Check availability with `pdfp doctor`.
+Local OCR uses `ocrmypdf` and Tesseract. Conversion defaults to `--ocr auto`, which skips OCR for clean born-digital PDFs and uses OCR when scan triage says it is needed. Check availability with `pdfp doctor`.
 
 ### OCR PDF
 

@@ -87,7 +87,8 @@ With struct-tree metadata, tagged roles (`H1`..`H6`, `Title`) override size-base
 
 | Flag | Affects |
 |---|---|
-| `--tables auto\|native\|layout\|off` | Controls `TableMode` passed to all table detection functions |
+| `--tables` | Saves detected table crops under `tables/` |
+| `--table-mode auto\|native\|layout\|off` | Hidden/debug control for `TableMode` passed to all table detection functions |
 | `--debug-tables` | Writes `debug/tables/pageN.json` with table candidates and evidence |
 | `--conservative` | Forces `TableMode::Layout`, disables speculative Markdown tables |
 | `--min-h-gap <pts>` | XY-Cut horizontal split threshold (default 8.0) |

@@ -11,4 +11,5 @@ pub mod layout;
 pub mod ocr;
 pub mod pdf;
 pub mod pipeline;
+pub mod processor;
 pub mod render;

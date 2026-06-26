@@ -29,7 +29,7 @@ Install the latest Linux release with one command:
 curl -fsSL https://github.com/EdwardAstill/pdf-processor/releases/latest/download/install.sh | sh
 ```
 
-The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies through the platform package manager when they are missing. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
+The installer places `pdfp` under `~/.local/share/pdfp`, symlinks it into `~/.local/bin`, and installs OCR dependencies with the platform package manager when they are missing. On Arch-like systems, it uses `yay` or `paru` for OCRmyPDF because OCRmyPDF is distributed through AUR. Set `PDFP_INSTALL_OCR=0` to skip OCR dependency installation.
 
 Confirm the binary is available:
 
@@ -93,165 +93,51 @@ Useful conversion flags:
 | Flag | Meaning |
 | --- | --- |
 | `-o`, `--output <DIR>` | Output directory |
-| `--no-images` | Skip extracted image files |
-| `--conservative` | Prefer review-safe fallbacks over heuristic reconstruction |
-| `--markdown-style clean|faithful|review` | Choose output shape; default is `clean`; `--format` is an alias |
-| `--figures embedded|snapshot|both|none` | Choose embedded image objects, rendered figure snapshots, both, or no image output |
-| `--figure-dpi <N>` | Snapshot render resolution, default `200` |
-| `--figure-padding <PTS>` | Padding around detected figure regions, default `8.0` |
-| `--debug-figures` | Write figure candidate JSON under `debug/figures/` |
-| `--tables auto|native|layout|off` | Choose coordinate table handling |
-| `--debug-tables` | Write table candidate JSON under `debug/tables/` |
-| `--formulas auto|local|hybrid|off` | Detect, audit, or route formula candidates |
-| `--debug-formulas` | Write formula candidate JSON and crops under `debug/formulas/` |
-| `--formula-sidecar <SIDECAR>` | Run optional formula OCR on high-confidence crops; accepts commands, `cmd:<command>`, or `onnx:<model-dir>` in `onnx-ocr` builds |
-| `--formula-sidecar-timeout-secs <N>` | Timeout for each formula sidecar crop attempt; default `30` |
-| `--formula-emit conservative|auto|all|none` | Control whether detected/recovered formulas are emitted as Markdown math |
-| `--ocr off|auto|force` | Run optional local OCR preprocessing |
-| `--ocr-lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
-| `--ocr-cache-dir <DIR>` | Cache searchable OCR derivative PDFs |
-| `--ocr-timeout-secs <N>` | OCR command timeout |
-| `--ocr-command <PATH>` | OCRmyPDF command path, defaults to `ocrmypdf` |
-| `--min-h-gap <PTS>` | Tune horizontal layout cuts |
-| `--min-v-gap <PTS>` | Tune vertical layout cuts |
-| `--hybrid docling` | Use a running Docling backend for harder pages |
-| `--hybrid-policy auto|all` | Route selected pages or every page to the backend |
-| `--hybrid-cache-dir <DIR>` | Cache hybrid Markdown by PDF/page |
+| `--images` | Also save detected figures/images under `images/` |
+| `--tables` | Also save detected table crops under `tables/` |
+| `--equations` | Also save detected equation crops under `equations/` |
+| `--pages <RANGE>` | Convert selected pages, e.g. `1-3,9`, `odd`, or `all` |
+| `--ocr auto|force|off` | OCR preprocessing mode; default is `auto` |
+| `--lang <LANGS>` | OCR languages, such as `eng` or `eng+deu` |
 | `-v`, `--verbose` | Print progress to stderr |
 
 Default output for `paper.pdf`:
 
 ```text
-paper/
-  paper.md
-  images/
-    page1_img1.png
+paper.md
 ```
 
-Figure modes:
+With optional assets:
 
 ```sh
-# Current default: extract raster image objects embedded in the PDF.
-pdfp convert paper.pdf -o out/ --figures embedded
-
-# Render the complete detected visual figure region from the page.
-pdfp convert paper.pdf -o out/ --figures snapshot --figure-dpi 200
-
-# Debug mode: keep both asset styles and write candidate metadata.
-pdfp convert paper.pdf -o out/ --figures both --debug-figures
-
-# Text-only markdown output.
-pdfp convert paper.pdf -o out/ --figures none
+pdfp paper.pdf --images --tables --equations
 ```
 
-`embedded` mode is fast and preserves the current `images/pageN_imgM.png` behavior, but it only sees raster image objects. `snapshot` mode renders detected page regions to `images/pageN_figM.png`, so it can include vector graphics, labels, legends, axes, and multi-panel figures that are not stored as one embedded image. Snapshot detection is heuristic; use `--debug-figures` when tuning false positives or missed figures. Higher `--figure-dpi` values produce sharper images but increase runtime and output size.
-
-Markdown style profiles:
-
-```sh
-# Default: reader-friendly Markdown. Reflows wrapped PDF lines, normalizes common
-# glyph artefacts, and suppresses formula-review comments without changing selected extraction modes.
-pdfp convert paper.pdf -o out/
-
-# Preserve the older PDF-faithful extraction shape when layout fidelity matters.
-pdfp convert paper.pdf -o out/ --markdown-style faithful
-
-# Audit-friendly Markdown: use review-safe extraction choices.
-pdfp convert standard.pdf -o out/ --markdown-style review --debug-tables --debug-formulas
+```text
+paper.md
+images/
+tables/
+equations/
 ```
 
-The default is `clean`, which is the right choice for notes and final Markdown documents. Combine it with `--tables native` when you explicitly want coordinate-derived Markdown tables. Use `faithful` when you want the older layout-preserving behaviour. Use `review` when checking standards, legal, engineering, or formula-heavy PDFs where a wrong reconstruction is worse than a visible fallback.
+For a single input, `-o out/` writes `out/paper.md` plus any requested asset folders. For a directory or glob, `pdfp` keeps one subdirectory per input under `out/` to avoid asset filename collisions.
 
-Conservative mode:
-
-```sh
-# Backwards-compatible review-safe preset: preserve ambiguous regions instead of guessing.
-pdfp convert standard.pdf -o out/ --conservative --debug-tables --debug-formulas
-```
-
-`--conservative` remains available as a preset for standards and other review-sensitive PDFs. It overrides conversion modes to avoid speculative reconstruction:
-
-- figures: embedded assets only, no rendered snapshot candidates
-- tables: fixed-width `layout` blocks instead of inferred Markdown tables
-- formulas: audit mode, no local heuristic `$$` rendering
-
-`--markdown-style review` uses the same review-safe effective conversion modes while making the output intent explicit. Use either review path when omissions or wrong reconstructions are more costly than having a review marker or a visually preserved fallback.
-
-Table modes:
-
-```sh
-# Default: native Markdown tables when confident, fixed-width fallback otherwise.
-pdfp convert catalogue.pdf -o out/ --tables auto
-
-# Force coordinate-derived Markdown tables.
-pdfp convert catalogue.pdf -o out/ --tables native
-
-# Preserve detected table regions as fenced fixed-width text.
-pdfp convert catalogue.pdf -o out/ --tables layout
-
-# Disable coordinate table reconstruction.
-pdfp convert catalogue.pdf -o out/ --tables off
-```
-
-`pdfp` reconstructs born-digital tables from MuPDF word coordinates plus rendered rule-line geometry. This works best when the PDF already has a usable text layer, such as product catalogues and standards with selectable text. `native` mode creates GFM tables from inferred rows and columns. `layout` mode writes a fenced `text` block with visual column spacing, which is safer for very wide engineering tables or multi-row headers. `--debug-tables` writes `table_region` bboxes, rows, confidence, render mode, and table evidence under `debug/tables/`.
-
-OCR is a separate concern. If the page is a scan with no usable text layer, use `--ocr auto` or `--ocr force` before expecting table reconstruction to work.
-
-Formula modes:
-
-```sh
-# Default: detect formula candidates and render high-confidence candidates as display math.
-pdfp convert standard.pdf -o out/ --formulas auto
-
-# Force local formula candidate rendering for inspection.
-pdfp convert standard.pdf -o out/ --formulas local --debug-formulas
-
-# Recover high-confidence formula crops with a local command.
-pdfp convert standard.pdf -o out/ --formula-sidecar rapid_latex_ocr --debug-formulas
-
-# Audit formula candidates without emitting Markdown math blocks.
-pdfp convert standard.pdf -o out/ --debug-formulas --formula-emit none
-
-# Compare native extraction with available formula providers.
-scripts/formula-eval.sh standard.pdf out/formula-eval
-
-# Recover formula crops with native ONNX OCR in an onnx-ocr build.
-pdfp convert standard.pdf -o out/ --formula-sidecar onnx:$HOME/.local/share/pdfp/rapid-latex-ocr --debug-formulas
-
-# Use formula candidates to route pages through Docling formula enrichment.
-pdfp convert standard.pdf -o out/ --hybrid docling --formulas hybrid
-
-# Disable formula detection.
-pdfp convert standard.pdf -o out/ --formulas off
-```
-
-PDF formulas are not stored as formulas. They are glyphs, positions, font encodings, and sometimes vector drawings. Auto mode detects likely display-equation regions, emits high-confidence candidates as display math under the default `--formula-emit auto` policy, and writes formula debug artifacts when `--debug-formulas` is enabled. The aggregate baseline report is `debug/formulas/index.json`; it records candidate counts, pages with candidates, emitted formula blocks, review blocks, crop paths, source text, recovered LaTeX, emission reasons, and structured sidecar status. `--debug-formulas` also runs a page-render visual scan for isolated equation bands near formula cues such as `Hence:` and `where:`. Visual-only regions get `pageN_formulaM.png` crops and Markdown `formula-review` comments rather than guessed LaTeX. `--formula-sidecar <CMD>` or `--formula-sidecar cmd:<CMD>` sends selected high-confidence crops to a local command; prose-like candidates, table/range candidates, and broad ambiguous visual-only bands are rejected before OCR. `rapid_latex_ocr` uses a persistent Python worker so model startup is paid once per conversion, while generic sidecar commands receive the crop PNG path as their first argument and should print LaTeX to stdout. Sidecar attempts record `recovered`, `empty-output`, `timeout`, `command-failed`, or `rejected-by-policy`, with per-candidate timing and stderr/error summaries where available. Use `--formula-sidecar-timeout-secs` for slow commands. Builds made with `--features onnx-ocr` also accept `--formula-sidecar onnx:<model-dir>`, where the model directory contains `encoder.onnx`, `decoder.onnx`, and `vocab.txt` from RapidLaTeX-OCR. `--formulas local` is available for inspection and renders all text-backed local candidates, but it does not guarantee perfect LaTeX. Use `--formula-emit conservative`, `--formula-emit none`, or `--conservative` for standard-processing review when heuristic math rendering is too risky. For recovery through Docling, run a backend and use `--hybrid docling --formulas hybrid`.
-
-To prepare native ONNX OCR:
-
-```sh
-mkdir -p ~/.local/share/pdfp/rapid-latex-ocr
-cd ~/.local/share/pdfp/rapid-latex-ocr
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/encoder.onnx
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/decoder.onnx
-wget https://huggingface.co/RapidAI/RapidLaTeXOCR/resolve/main/vocab.txt
-cargo build --release --features onnx-ocr
-```
+The default conversion path uses the best local extraction system: clean Markdown rendering, automatic scan triage, OCR when needed, table reconstruction, and formula detection. The asset flags do not turn those systems on; they only ask `pdfp` to also save visual crops.
 
 ## Local OCR
 
-OCR is opt-in. It never edits the input PDF in place. When OCR is needed, `pdfp` writes a searchable derivative PDF to a temporary or cache directory, then runs the normal conversion, inspection, or search path against that derivative while keeping output names based on the original file.
+Markdown conversion uses `--ocr auto` by default. It never edits the input PDF in place. When OCR is needed, `pdfp` writes a searchable derivative PDF to a temporary or cache directory, then runs the normal conversion, inspection, or search path against that derivative while keeping output names based on the original file.
 
-Use automatic OCR only when scan triage says it is needed:
+Use `--lang` when the scan is not English:
 
 ```sh
-pdfp convert scan.pdf --ocr auto --ocr-lang eng --ocr-cache-dir .pdfp-ocr -o out/
+pdfp scan.pdf --lang eng+deu
 ```
 
 Force OCR when the embedded text layer exists but is damaged:
 
 ```sh
-pdfp convert bad-text-layer.pdf --ocr force --ocr-lang eng+deu -o out/
+pdfp bad-text-layer.pdf --ocr force --lang eng+deu
 ```
 
 Inspect the OCR decision:

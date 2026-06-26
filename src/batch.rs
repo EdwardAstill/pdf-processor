@@ -84,3 +84,23 @@ pub fn output_dir_for(file_path: &Path, output_base: Option<&Path>) -> PathBuf {
             .join(stem.as_ref()),
     }
 }
+
+/// Determine the conversion output directory.
+///
+/// Single-file conversion writes `stem.md` and optional asset folders directly
+/// in the requested output directory. Batch conversion keeps the historical
+/// per-input subdirectory to avoid asset filename collisions.
+pub fn conversion_output_dir_for(
+    file_path: &Path,
+    output_base: Option<&Path>,
+    batch_mode: bool,
+) -> PathBuf {
+    if batch_mode {
+        return output_dir_for(file_path, output_base);
+    }
+
+    match output_base {
+        Some(base) => base.to_path_buf(),
+        None => file_path.parent().unwrap_or(Path::new(".")).to_path_buf(),
+    }
+}

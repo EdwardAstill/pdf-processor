@@ -58,13 +58,21 @@ fn every_command_path_prints_help() {
 
         if *command == ["convert"] {
             assert!(
-                stdout.contains("--figures")
-                    && stdout.contains("--figure-dpi")
-                    && stdout.contains("--conservative")
+                stdout.contains("--images")
                     && stdout.contains("--tables")
-                    && stdout.contains("--debug-tables")
-                    && stdout.contains("--formula-sidecar"),
-                "convert help should document figure, table, and formula controls:\n{stdout}"
+                    && stdout.contains("--equations")
+                    && stdout.contains("--pages")
+                    && stdout.contains("--ocr")
+                    && stdout.contains("--lang"),
+                "convert help should document the simple conversion controls:\n{stdout}"
+            );
+            assert!(
+                !stdout.contains("--figures")
+                    && !stdout.contains("--figure-dpi")
+                    && !stdout.contains("--conservative")
+                    && !stdout.contains("--debug-tables")
+                    && !stdout.contains("--formula-sidecar"),
+                "convert help should hide advanced conversion controls:\n{stdout}"
             );
         }
     }

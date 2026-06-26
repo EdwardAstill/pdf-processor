@@ -27,8 +27,9 @@ elif command -v ocrmypdf >/dev/null 2>&1; then
 This release was built without a hermetic OCR runtime.
 
 The installer can install OCRmyPDF/Tesseract through the platform package
-manager, and pdfp will also discover OCRmyPDF from PATH. Future full bundles
-can place ocrmypdf, tesseract, qpdf, ghostscript, and tessdata in this folder.
+manager by default, and pdfp will also discover OCRmyPDF from PATH. Future full
+bundles can place ocrmypdf, tesseract, qpdf, ghostscript, and tessdata in this
+folder.
 EOF
 else
   cat > "$STAGE/tools/ocr/README.md" <<'EOF'

@@ -87,13 +87,13 @@ The native detector follows the same broad shape as text-strategy table extracto
 The CLI exposes this as:
 
 ```sh
-pdfp convert catalogue.pdf --tables auto
-pdfp convert catalogue.pdf --tables native
-pdfp convert catalogue.pdf --tables layout
-pdfp convert catalogue.pdf --tables off
+pdfp convert catalogue.pdf --table-mode auto
+pdfp convert catalogue.pdf --table-mode native
+pdfp convert catalogue.pdf --table-mode layout
+pdfp convert catalogue.pdf --table-mode off
 ```
 
-`auto` emits a GFM Markdown table when confidence is high. When a region is table-like but too ambiguous, it falls back to a fenced `text` layout block rather than collapsing the table into a long paragraph. `layout` forces that fixed-width fallback, which is useful for wide manufacturer catalogues. `native` forces Markdown output for detected coordinate tables. `--debug-tables` writes JSON under `<output>/debug/tables/`.
+`auto` emits a GFM Markdown table when confidence is high. When a region is table-like but too ambiguous, it falls back to a fenced `text` layout block rather than collapsing the table into a long paragraph. `layout` forces that fixed-width fallback, which is useful for wide manufacturer catalogues. `native` forces Markdown output for detected coordinate tables. `--tables` is the public asset flag and saves detected table crops under `<output>/tables/`; `--debug-tables` writes JSON under `<output>/debug/tables/`.
 
 For review-sensitive standards work, `--conservative` forces the safe table fallback, keeps formulas in audit mode, and disables rendered figure snapshot candidates. Use it when a wrong reconstruction is worse than a preserved visual/text fallback.
 
@@ -231,15 +231,15 @@ mupdf's `TextBlock::image()` returns an `Option<Image>` for image-type blocks. `
 - 1-bit fax-compressed images become 24-bit PNG. Bigger files, readable output.
 - JPEG 2000 and JBIG2, if mupdf's pixmap converter can decode them, round-trip to PNG. Otherwise we skip silently.
 
-The PNG is written to `<output>/images/page{N}_img{M}.png`, and a `Block { kind: BlockKind::Image { path: "images/..." } }` is inserted into the page in Y-position order. The resulting markdown carries `![image](images/page3_img1.png)` links.
+When image output is enabled, the PNG is written to `<output>/images/page{N}_img{M}.png`, and a `Block { kind: BlockKind::Image { path: "images/..." } }` is inserted into the page in Y-position order. The resulting markdown carries `![image](images/page3_img1.png)` links.
 
-This is `--figures embedded`, the default compatibility mode.
+This is the hidden/debug `--figures embedded` compatibility mode.
 
 ### Figure snapshots
 
-`--figures snapshot` takes a different path. It first detects likely figure regions from caption blocks and significant embedded-image bboxes, then renders the detected page region through MuPDF into `<output>/images/page{N}_fig{M}.png`. The rendered region can include text labels, axes, legends, vector paths, and multiple embedded images because it is captured from the painted page instead of from a single raster object.
+The public `--images` flag defaults to snapshot-style output. It first detects likely figure regions from caption blocks and significant embedded-image bboxes, then renders the detected page region through MuPDF into `<output>/images/page{N}_fig{M}.png`. The rendered region can include text labels, axes, legends, vector paths, and multiple embedded images because it is captured from the painted page instead of from a single raster object.
 
-`--figures both` emits both asset styles. `--figures none` and `--no-images` suppress both embedded images and snapshots. `--debug-figures` writes candidate JSON under `<output>/debug/figures/` with page number, bbox, caption bbox, seed image indices, confidence, and reason.
+Hidden/debug `--figures both` emits both asset styles. `--figures none` and `--no-images` suppress both embedded images and snapshots. `--debug-figures` writes candidate JSON under `<output>/debug/figures/` with page number, bbox, caption bbox, seed image indices, confidence, and reason.
 
 Snapshot detection is deliberately heuristic. It improves complete visual figure capture, but it is not a full semantic figure-understanding system. Blank rendered candidates are skipped.
 
